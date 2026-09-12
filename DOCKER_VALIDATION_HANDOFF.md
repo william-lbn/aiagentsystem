@@ -2,7 +2,7 @@
 
 Docker is **not** required to use or extend this baseline. This document is the optional follow-on gate for teams that want a canonical OCI build environment and provenance evidence.
 
-The repository already includes `Dockerfile.builder`, exact Quarto 1.11.1 metadata, a digest-pinned Quarto base image, `make release-container`, and SHA-pinned Actions. The current local validation host has no Docker daemon/Quarto CLI, so no container runtime PASS is claimed.
+The repository already includes `Dockerfile.builder`, exact Quarto 1.11.1 metadata, a digest-pinned Quarto base image, explicit TeX package requirements, `make release-container`, and SHA-pinned Actions. A canonical PASS is claimed only when a hosted or local container run has produced the corresponding logs; configuration alone is not execution evidence.
 
 On a Docker-capable runner:
 
@@ -16,6 +16,8 @@ Recommended additional evidence for the first hosted release:
 source commit/tag
 final builder image digest
 Quarto version
+Quarto-embedded Pandoc version
+dpkg and TeX Live package-revision inventories
 SOURCE_DATE_EPOCH
 release SHA256SUMS.txt
 second isolated canonical build SHA comparison

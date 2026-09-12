@@ -25,6 +25,8 @@ jobs:
         run: |
           mkdir -p validation_logs
           docker run --rm "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" dpkg-query -W '-f=${Package}\t${Version}\n' | sort > validation_logs/builder-os-packages.txt
+          docker run --rm "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" tlmgr info --only-installed --data name,localrev,cat-version > validation_logs/builder-texlive-packages.csv
+          docker run --rm "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" sh -lc 'quarto --version; quarto pandoc --version; xelatex --version | head -n 1; tlmgr --version | head -n 2' > validation_logs/builder-publisher-toolchain.txt
           docker inspect "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" > validation_logs/builder-image-inspect.json
           sha256sum Dockerfile.builder builder.lock.json uv.lock course.toml > validation_logs/builder-inputs.sha256
       - name: Canonical Quarto validation and release

@@ -19,14 +19,29 @@ lo = tuple(map(int, str(cfg["min_python"]).split(".")))
 hi = tuple(map(int, str(cfg["max_python_exclusive"]).split(".")))
 if not (lo <= sys.version_info[:2] < hi):
     errors.append(f"Python {platform.python_version()} outside {cfg['min_python']}..<{cfg['max_python_exclusive']}")
-for cmd in ("pandoc", "xelatex", "dot", "fc-match", "pdfinfo", "pdftotext", "kpsewhich", "cargo", "rustc"):
+required = ["xelatex", "dot", "fc-match", "pdfinfo", "pdftotext", "kpsewhich", "cargo", "rustc"]
+required += ["quarto", "tlmgr"] if a.canonical else ["pandoc"]
+for cmd in required:
     if not shutil.which(cmd):
         errors.append(f"missing command: {cmd}")
-if shutil.which("pandoc"):
-    out = subprocess.run(["pandoc", "--version"], text=True, capture_output=True).stdout.splitlines()[0]
+
+# Quarto deliberately bundles the Pandoc version against which it is tested.
+# A distro's unrelated ``pandoc`` executable may be older and is not used by
+# ``quarto render``. Compatibility builds continue to inspect plain Pandoc.
+pandoc_cmd = ["quarto", "pandoc", "--version"] if a.canonical else ["pandoc", "--version"]
+pandoc_available = shutil.which("quarto") if a.canonical else shutil.which("pandoc")
+if pandoc_available:
+    cp = subprocess.run(pandoc_cmd, text=True, capture_output=True)
+    lines = cp.stdout.splitlines()
+    out = lines[0] if lines else ""
     info["pandoc"] = out
+    info["pandoc_provider"] = "quarto-embedded" if a.canonical else "system"
+    if cp.returncode != 0 or not out:
+        errors.append(f"unable to inspect {'Quarto-embedded' if a.canonical else 'system'} Pandoc")
     m = re.search(r"(\d+)\.(\d+)", out)
-    if m and (int(m.group(1)), int(m.group(2))) < (3, 1):
+    if not m:
+        errors.append(f"unparseable Pandoc version: {out!r}")
+    elif (int(m.group(1)), int(m.group(2))) < (3, 1):
         errors.append("pandoc >=3.1 required")
 if shutil.which("xelatex"):
     info["xelatex"] = subprocess.run(["xelatex", "--version"], text=True, capture_output=True).stdout.splitlines()[0]
