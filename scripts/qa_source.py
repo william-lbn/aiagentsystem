@@ -3,12 +3,9 @@ from pathlib import Path
 import hashlib
 import re
 import json
-import subprocess
-import tempfile
 import tomllib
 from xml.etree import ElementTree as ET
 from common import ROOT, chapter_paths, appendix_paths, lab_paths, build_cfg, course, summary_parts
-from build_diagrams import render_dot
 
 cfg = build_cfg()
 meta = course()
@@ -92,36 +89,60 @@ svgs = sorted((ROOT / "book/assets/diagrams").glob("*.svg"))
 req(len(dots) == cfg["expected_diagrams"], f"dot diagrams={len(dots)}")
 req(len(svgs) == cfg["expected_diagrams"], f"svg diagrams={len(svgs)}")
 
-GEOMETRY_ATTRS = {
-    "width",
-    "height",
-    "viewBox",
-    "transform",
-    "d",
-    "points",
-    "x",
-    "y",
-    "x1",
-    "y1",
-    "x2",
-    "y2",
-    "cx",
-    "cy",
-    "rx",
-    "ry",
-}
+NODE_RE = re.compile(r'^\s*([A-Za-z_][\w]*)\s*\[(.*?)\]\s*;\s*$', re.M)
+EDGE_RE = re.compile(r'^\s*([A-Za-z_][\w]*)\s*->\s*([A-Za-z_][\w]*)\s*(?:\[(.*?)\])?\s*;\s*$', re.M)
+LABEL_RE = re.compile(r'(?:^|,)\s*label="((?:\\.|[^"\\])*)"')
+
+
+def normalize_diagram_text(value: str) -> str:
+    # Graphviz may serialize ordinary spacing as NBSP entities and may split a
+    # label into multiple text nodes; neither changes the visible semantics.
+    return re.sub(r"\s+", " ", value.replace("\u00a0", " ")).strip()
+
+
+def dot_semantics(path: Path):
+    source = path.read_text(encoding="utf-8")
+    nodes = {}
+    for node_id, attrs in NODE_RE.findall(source):
+        label = LABEL_RE.search(attrs)
+        if label:
+            nodes[node_id] = normalize_diagram_text(label.group(1).replace(r'\"', '"').replace(r"\n", "\n"))
+    edges = []
+    for src, dst, attrs in EDGE_RE.findall(source):
+        label = LABEL_RE.search(attrs)
+        edge_label = normalize_diagram_text(label.group(1).replace(r'\"', '"').replace(r"\n", "\n")) if label else ""
+        edges.append((f"{src}->{dst}", edge_label))
+    return nodes, sorted(edges)
 
 
 def svg_semantics(path: Path):
     root = ET.parse(path).getroot()
-
-    def visit(node):
-        attrs = tuple(
-            sorted((key, value) for key, value in node.attrib.items() if key.rsplit("}", 1)[-1] not in GEOMETRY_ATTRS)
-        )
-        return (node.tag.rsplit("}", 1)[-1], attrs, (node.text or "").strip(), tuple(visit(child) for child in node))
-
-    return visit(root)
+    nodes = {}
+    edges = []
+    forbidden = []
+    for element in root.iter():
+        tag = element.tag.rsplit("}", 1)[-1]
+        if tag in {"script", "foreignObject"}:
+            forbidden.append(tag)
+        for raw_key, value in element.attrib.items():
+            key = raw_key.rsplit("}", 1)[-1].lower()
+            if key.startswith("on") or (key == "href" and value.strip().lower().startswith(("http:", "https:", "//"))):
+                forbidden.append(f"{tag}@{key}")
+        if tag != "g":
+            continue
+        kind = element.attrib.get("class")
+        titles = ["".join(child.itertext()).strip() for child in element if child.tag.rsplit("}", 1)[-1] == "title"]
+        if len(titles) != 1 or kind not in {"node", "edge"}:
+            continue
+        visible = ["".join(child.itertext()).strip() for child in element.iter() if child.tag.rsplit("}", 1)[-1] == "text"]
+        label = normalize_diagram_text("\n".join(part for part in visible if part))
+        if kind == "node":
+            nodes[titles[0]] = label
+        else:
+            edges.append((titles[0].replace("→", "->"), label))
+    if forbidden:
+        raise ValueError(f"unsafe SVG elements/attributes: {sorted(forbidden)}")
+    return nodes, sorted(edges)
 
 
 for dot in dots:
@@ -132,16 +153,13 @@ for dot in dots:
         f"<!-- DOT-SHA256: {expected_hash} -->" in committed,
         f"{svg.name}: DOT source hash missing/stale; run make diagrams",
     )
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td) / svg.name
-        try:
-            render_dot(dot, "svg", tmp)
-            expected = svg_semantics(tmp)
-            actual = svg_semantics(svg)
-        except (subprocess.CalledProcessError, ET.ParseError, OSError) as e:
-            req(False, f"{dot.name}: SVG semantic verification failed: {e}")
-        else:
-            req(expected == actual, f"{svg.name}: semantic preview mismatch; run make diagrams")
+    try:
+        expected = dot_semantics(dot)
+        actual = svg_semantics(svg)
+    except (ET.ParseError, OSError, ValueError) as e:
+        req(False, f"{dot.name}: SVG semantic verification failed: {e}")
+    else:
+        req(expected == actual, f"{svg.name}: node/edge/label preview mismatch; run make diagrams")
 
 # Generated outputs must not become canonical source.
 gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
