@@ -26,6 +26,8 @@ texlive_requested = lock.get("texlive_packages_requested")
 if not isinstance(texlive_requested, dict) or not texlive_requested:
     errors.append("missing texlive_packages_requested")
 else:
+    if not re.search(r"\btlmgr\s+update\s+--self\b", docker):
+        errors.append("Dockerfile does not update the base image's stale tlmgr before package resolution")
     if not re.search(r"\btlmgr\s+install\b", docker):
         errors.append("Dockerfile does not explicitly install TeX Live packages")
     for pkg, required_file in texlive_requested.items():

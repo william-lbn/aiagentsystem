@@ -22,14 +22,14 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install uv==0.10.0
       - run: make bootstrap
       - run: make core-validate
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: matrix.python-version == '3.13'
         with:
           name: coverage-python-3.13
@@ -40,10 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install source-QA system dependencies
         run: sudo apt-get update && sudo apt-get install --yes graphviz fontconfig fonts-noto-cjk
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
       - run: python -m pip install uv==0.10.0
@@ -58,7 +58,7 @@ jobs:
       - run: .venv/bin/python scripts/qa_quarto_config.py
       - run: .venv/bin/python scripts/qa_git_index.py
       - run: make dependency-audit
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dependency-sbom
           if-no-files-found: error
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Read canonical build metadata
         shell: bash
         run: |
@@ -80,7 +80,7 @@ jobs:
         run: docker build --pull=false -f Dockerfile.builder -t "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" .
       - name: Validate all canonical publication surfaces
         run: docker run --rm -e SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python bootstrap validate-canonical manifest
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: canonical-publication
           if-no-files-found: error

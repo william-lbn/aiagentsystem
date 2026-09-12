@@ -25,7 +25,7 @@
     "base_image": "digest-pinned",
     "python_dependencies": "uv.lock exact resolution",
     "os_packages": "resolved inside the digest-pinned base image's configured APT repositories at builder-image creation time; exact dpkg versions MUST be captured as release evidence",
-    "texlive_packages": "resolved by tlmgr from the digest-pinned base image's configured CTAN repository at builder-image creation time; exact installed local revisions MUST be captured as release evidence",
+    "texlive_packages": "tlmgr itself is updated and packages are resolved from the digest-pinned base image's configured CTAN repository at builder-image creation time; exact installed local revisions MUST be captured as release evidence",
     "claim_ceiling": "The Dockerfile is not bit-hermetic with respect to APT or CTAN repository time. Release evidence records the resolved dpkg and TeX Live inventories; a future builder-system revision may adopt snapshot repositories without changing course content."
   }
 }

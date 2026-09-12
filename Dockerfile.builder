@@ -6,6 +6,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv python3-pip cargo rustc graphviz poppler-utils fonts-noto-cjk fonts-noto-cjk-extra libreoffice \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m pip install --no-cache-dir uv==0.10.0 \
+ && tlmgr update --self \
  && tlmgr install ctex fancyhdr fvextra needspace \
  && test -n "$(kpsewhich ctexbook.cls)" \
  && test -n "$(kpsewhich fancyhdr.sty)" \

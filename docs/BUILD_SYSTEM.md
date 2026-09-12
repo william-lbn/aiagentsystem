@@ -83,7 +83,7 @@ Build System 1.1.1 不检查某个内容版本字符串。QA 检查的是长期�
 
 `course.toml` 固定 `SOURCE_DATE_EPOCH`。Release ZIP 固定 entry timestamp、Unix file mode、路径排序与 compression level。`scripts/verify_reproducible_release.py` 在两个隔离临时目录中重复生成 release 并比较 SHA-256；`verify_source_clean.py` 确保 source-only 包不泄漏生成产物。
 
-`verify_same_host_clean_rebuild.py` 还会把 SOURCE-CLEAN 独立解包两次，以调用验证器的同一 Python 和两个隔离 uv cache 冷启动；lxml、Pillow、python-pptx 与 Pydantic Core 必须先通过原生导入审计，随后 book/site/workbook/slides 的发布表面逐文件比对。它证明的是**同主机、同工具链的干净重建等价**。真正跨时间的 canonical Quarto bit-for-bit reproducibility 仍依赖完整 builder environment；仓库提供 digest-pinned Quarto base image 与 `Dockerfile.builder` 作为 CI hardening 路径，但不把本地 Docker 可用性当作内容正确性的替代物。
+`verify_same_host_clean_rebuild.py` 还会把 SOURCE-CLEAN 独立解包两次，以调用验证器的同一 Python 和两个隔离 uv cache 冷启动；网络 bootstrap 最多进行三次有界重试，同一 cache 仅复用已校验的局部下载，包身份与 hash 仍由 `uv.lock` 决定。lxml、Pillow、python-pptx 与 Pydantic Core 必须先通过原生导入审计，随后 book/site/workbook/slides 的发布表面逐文件比对。它证明的是**同主机、同工具链的干净重建等价**。真正跨时间的 canonical Quarto bit-for-bit reproducibility 仍依赖完整 builder environment；仓库提供 digest-pinned Quarto base image 与 `Dockerfile.builder` 作为 CI hardening 路径，但不把本地 Docker 可用性当作内容正确性的替代物。
 
 Canonical 预检调用 `quarto pandoc --version`，检查 Quarto 随发行版内置、且被 `quarto render` 实际调用的 Pandoc；宿主系统里同名的旧 Pandoc 不属于 canonical publisher。镜像显式安装 `ctex`、`fancyhdr`、`fvextra` 与 `needspace`，并在 build layer 用 `kpsewhich` 验证书籍样式的直接依赖。Quarto base digest 与 Python lock 已固定，但 APT/CTAN 仍是构建时解析的仓库，因此不能宣称跨时间 bit-hermetic；tag release 必须保存实际 `dpkg` inventory、TeX Live package revision inventory、最终 image inspect 与工具链版本。
 

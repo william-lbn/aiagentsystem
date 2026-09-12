@@ -79,37 +79,55 @@ def run_one(dest: Path, label: str) -> dict[str, str]:
     if uv is None:
         raise SystemExit("CLEAN_REBUILD_MISSING_UV")
     bootstrap_log = logdir / f"clean-rebuild-{label}-bootstrap.log"
+    command = [
+        uv,
+        "sync",
+        "--locked",
+        "--no-default-groups",
+        "--group",
+        "publish",
+        "--no-install-project",
+        "--python",
+        sys.executable,
+    ]
+    bootstrap = None
+    max_bootstrap_attempts = 3
     with bootstrap_log.open("w", encoding="utf-8") as out:
-        command = [
-            uv,
-            "sync",
-            "--locked",
-            "--no-default-groups",
-            "--group",
-            "publish",
-            "--no-install-project",
-            "--python",
-            sys.executable,
-        ]
-        try:
-            bootstrap = subprocess.run(
-                command,
-                cwd=repo,
-                env=env,
-                text=True,
-                stdout=out,
-                stderr=subprocess.STDOUT,
-                timeout=900,
-            )
-        except subprocess.TimeoutExpired:
+        for attempt in range(1, max_bootstrap_attempts + 1):
+            out.write(f"CLEAN_REBUILD_BOOTSTRAP_ATTEMPT {attempt}/{max_bootstrap_attempts}\n")
             out.flush()
-            print(bootstrap_log.read_text(encoding="utf-8", errors="replace")[-12000:])
-            raise SystemExit(f"CLEAN_REBUILD_BOOTSTRAP_TIMEOUT label={label} seconds=900") from None
+            try:
+                bootstrap = subprocess.run(
+                    command,
+                    cwd=repo,
+                    env=env,
+                    text=True,
+                    stdout=out,
+                    stderr=subprocess.STDOUT,
+                    timeout=900,
+                )
+            except subprocess.TimeoutExpired:
+                out.write(f"CLEAN_REBUILD_BOOTSTRAP_ATTEMPT_TIMEOUT seconds=900 attempt={attempt}\n")
+                out.flush()
+                if attempt == max_bootstrap_attempts:
+                    print(bootstrap_log.read_text(encoding="utf-8", errors="replace")[-12000:])
+                    raise SystemExit(
+                        f"CLEAN_REBUILD_BOOTSTRAP_TIMEOUT label={label} seconds=900 attempts={max_bootstrap_attempts}"
+                    ) from None
+                continue
+            if bootstrap.returncode == 0:
+                break
+            out.write(f"CLEAN_REBUILD_BOOTSTRAP_ATTEMPT_FAILED rc={bootstrap.returncode} attempt={attempt}\n")
+            out.flush()
+    if bootstrap is None:
+        raise SystemExit(f"CLEAN_REBUILD_BOOTSTRAP_NO_RESULT label={label}")
     print("CLEAN_REBUILD_DEPENDENCY_SCOPE groups=publish project=runtime cache=cold", flush=True)
     print(f"CLEAN_REBUILD_BOOTSTRAP label={label} rc={bootstrap.returncode}", flush=True)
     if bootstrap.returncode:
         print(bootstrap_log.read_text(encoding="utf-8", errors="replace")[-12000:])
-        raise SystemExit(f"CLEAN_REBUILD_BOOTSTRAP_FAILED label={label} rc={bootstrap.returncode}")
+        raise SystemExit(
+            f"CLEAN_REBUILD_BOOTSTRAP_FAILED label={label} rc={bootstrap.returncode} attempts={max_bootstrap_attempts}"
+        )
     py = repo / ".venv/bin/python"
     if not py.exists():
         raise SystemExit(f"CLEAN_REBUILD_PYTHON_MISSING label={label} path={py}")
