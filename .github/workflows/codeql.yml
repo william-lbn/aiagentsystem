@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@c20e34f438d671fc35777cc9820dd7adf8252874
+        uses: github/codeql-action/init@faaca9a8f6edddba5725ffe5adefdab6669a2eca
         with:
           languages: python
           queries: security-extended
