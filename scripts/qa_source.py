@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import ast
 import hashlib
 import re
 import json
@@ -165,6 +166,25 @@ for dot in dots:
 gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
 for pattern in ["book/zh/book.md", "book/build/", "slides/*.pptx", "workbook/build/", "site/", "dist/", ".build/"]:
     req(pattern in gitignore, f".gitignore missing {pattern}")
+
+# A Python environment guarantees its current interpreter, not an unversioned
+# ``python`` alias on PATH. Examples that spawn child Python processes must
+# preserve the exact validated interpreter through sys.executable.
+process_calls = {"run", "Popen", "check_call", "check_output", "check_returncode"}
+for sp in (ROOT / "examples").rglob("*.py"):
+    try:
+        tree = ast.parse(sp.read_text(encoding="utf-8"), filename=str(sp))
+    except SyntaxError as e:
+        req(False, f"{sp.relative_to(ROOT)}: invalid Python syntax: {e}")
+        continue
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr not in process_calls:
+            continue
+        if not node.args or not isinstance(node.args[0], (ast.List, ast.Tuple)) or not node.args[0].elts:
+            continue
+        executable = node.args[0].elts[0]
+        if isinstance(executable, ast.Constant) and executable.value == "python":
+            req(False, f"{sp.relative_to(ROOT)}:{node.lineno}: subprocess must use sys.executable, not bare python")
 
 # No release literal in build/QA implementation. course.toml is the single source.
 release_literal = str(meta["version"]).lower()
