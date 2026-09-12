@@ -37,7 +37,7 @@ SUMMARY + Markdown + Labs + DOT + course.toml
           SVG(HTML/EPUB) / PDF(LaTeX)
 ```
 
-Canonical release publisher 是 Quarto 1.11.1。`scripts/publish.py --engine pandoc` 是开发机 compatibility publisher，也走 Pandoc AST；它不是另一套 Markdown renderer。
+Canonical release publisher 是 Quarto 1.11.1。Quarto Book project 生成主书/Workbook 的 PDF 与 EPUB，Quarto Website project 生成完整课程站点；由于 HTML Book 是多页网站而发布契约还需要一份可下载的整书 HTML，该单文件由同一 Quarto 发行版的 `quarto pandoc` 生成。`scripts/publish.py --engine pandoc` 是开发机 compatibility publisher，也走 Pandoc AST；它不是另一套 Markdown renderer。
 
 ## 3. 为什么 Book / Website / Workbook 分成三个 Quarto project
 

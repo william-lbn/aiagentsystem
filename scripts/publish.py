@@ -363,11 +363,53 @@ def compat_workbook():
     print("WORKBOOK_BUILT compatibility=pandoc", out)
 
 
+def copy_quarto_single(source_dir: Path, destination: Path, suffix: str):
+    candidates = sorted(p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() == suffix)
+    if len(candidates) != 1:
+        names = [p.name for p in candidates]
+        raise SystemExit(f"QUARTO_SINGLE_OUTPUT_MISMATCH suffix={suffix} candidates={names}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(candidates[0], destination)
+
+
+def render_canonical_html(
+    src: Path,
+    out: Path,
+    resource_paths: list[Path],
+    *,
+    css: Path | None = None,
+    toc_depth: int | None = None,
+):
+    """Build the downloadable single-file HTML with Quarto's bundled Pandoc.
+
+    A Quarto Book's HTML format is intentionally a multi-page website. The
+    separate site target owns that surface; this path preserves the release's
+    standalone HTML contract without falling back to the host Pandoc.
+    """
+    depth = int(PDF.get("html_toc_depth", 3)) if toc_depth is None else toc_depth
+    cmd = [
+        "quarto",
+        "pandoc",
+        str(src),
+        *pandoc_common(depth),
+        "--resource-path",
+        os.pathsep.join(str(p) for p in resource_paths),
+        "--embed-resources",
+    ]
+    if css is not None:
+        cmd += ["--css", str(css)]
+    cmd += ["-o", str(out)]
+    run(cmd)
+
+
 def canonical(target: str):
     require("quarto")
     cp = subprocess.run(["quarto", "--version"], capture_output=True, text=True, check=True).stdout.strip()
     if cp != str(CFG["quarto_version"]):
         raise SystemExit(f"QUARTO_VERSION_MISMATCH actual={cp} expected={CFG['quarto_version']}")
+    if target == "book":
+        run([sys.executable, str(ROOT / "scripts/build_diagrams.py")])
+        run([sys.executable, str(ROOT / "scripts/assemble_book.py")])
     project = prepare(target)
     run(["quarto", "render"], cwd=project)
     qout = project / "_output"
@@ -379,15 +421,26 @@ def canonical(target: str):
     elif target == "book":
         out = ROOT / "book/build"
         clean_dir(out)
-        for p in qout.iterdir():
-            if p.suffix.lower() in {".pdf", ".epub", ".html"}:
-                shutil.copy2(p, out / f"ai-agent-systems-course-{VERSION}{p.suffix.lower()}")
+        copy_quarto_single(qout, out / f"ai-agent-systems-course-{VERSION}.pdf", ".pdf")
+        copy_quarto_single(qout, out / f"ai-agent-systems-course-{VERSION}.epub", ".epub")
+        render_canonical_html(
+            ROOT / "book/zh/book.md",
+            out / f"ai-agent-systems-course-{VERSION}.html",
+            [ROOT / "book", ROOT / "book/zh", ROOT],
+            css=ROOT / "book/assets/book.css",
+        )
     else:
         out = ROOT / "workbook/build"
         clean_dir(out)
-        for p in qout.iterdir():
-            if p.suffix.lower() in {".pdf", ".epub", ".html"}:
-                shutil.copy2(p, out / f"agent-systems-lab-workbook-{VERSION}{p.suffix.lower()}")
+        copy_quarto_single(qout, out / f"agent-systems-lab-workbook-{VERSION}.pdf", ".pdf")
+        copy_quarto_single(qout, out / f"agent-systems-lab-workbook-{VERSION}.epub", ".epub")
+        src = workbook_source()
+        render_canonical_html(
+            src,
+            out / f"agent-systems-lab-workbook-{VERSION}.html",
+            [ROOT, ROOT / "labs/core"],
+            toc_depth=1,
+        )
     print("CANONICAL_QUARTO_BUILT", target)
 
 

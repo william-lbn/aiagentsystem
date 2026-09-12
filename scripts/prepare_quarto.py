@@ -58,8 +58,9 @@ def book_yaml() -> str:
         f"  subtitle: {q(META['subtitle'])}",
         f"  author: {q(META['author'])}",
         f"  date: {q(META['version'] + ' · ' + META['release_date'])}",
+        f"  output-file: {q('ai-agent-systems-course-' + META['version'])}",
         "  chapters:",
-        '    - "preface.qmd"',
+        '    - "index.qmd"',
     ]
     for part in summary_parts():
         lines += [f"    - part: {q(part['title'])}", "      chapters:"]
@@ -67,11 +68,6 @@ def book_yaml() -> str:
     lines += ["  appendices:"] + [f"    - {q('book/zh/' + p.name)}" for p in appendix_paths()]
     lines += [
         "format:",
-        "  html:",
-        "    toc: true",
-        f"    toc-depth: {int(PDF.get('html_toc_depth', 3))}",
-        "    number-sections: true",
-        "    embed-resources: true",
         "  epub:",
         "    toc: true",
         "    toc-depth: 2",
@@ -149,14 +145,13 @@ def workbook_yaml() -> str:
             f"  subtitle: {q('80 个可复现实验：正常路径与故障注入')}",
             f"  author: {q(META['author'])}",
             f"  date: {q(META['version'] + ' · ' + META['release_date'])}",
+            f"  output-file: {q('agent-systems-lab-workbook-' + META['version'])}",
             "  chapters:",
+            '    - "index.qmd"',
         ]
         + [f"    - {q(x)}" for x in labs]
         + [
             "format:",
-            "  html:",
-            "    toc: true",
-            "    toc-depth: 1",
             "  epub:",
             "    toc: true",
             "    toc-depth: 1",
@@ -190,7 +185,7 @@ def prepare(target: str) -> Path:
     copy_sources(dst)
     if target == "book":
         annotate_appendix_titles(dst)
-        (dst / "preface.qmd").write_text(preface_text(), encoding="utf-8")
+        (dst / "index.qmd").write_text(preface_text(), encoding="utf-8")
         y = book_yaml()
     elif target == "site":
         y = site_yaml()
@@ -199,6 +194,12 @@ def prepare(target: str) -> Path:
         )
     elif target == "workbook":
         y = workbook_yaml()
+        (dst / "index.qmd").write_text(
+            "# Lab Workbook 使用说明 {.unnumbered}\n\n"
+            "本册把 40 个主题拆成 80 个可执行实验：A 验证正常路径，B 注入故障并按证据等级判断检测、约束或恢复。"
+            "每个 Lab 都给出运行命令、独立 oracle、预期不变量和证据边界。\n",
+            encoding="utf-8",
+        )
     else:
         raise ValueError(target)
     (dst / "_quarto.yml").write_text(y, encoding="utf-8")
