@@ -27,7 +27,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Refuse an incomplete benchmark environment
         run: python3 scripts/preflight_external_benchmarks.py --benchmark swebench-lite-agent-smoke
       - name: Checkout the pinned official harness
@@ -72,7 +72,7 @@ jobs:
       HOMEPAGE: ${{ vars.WEBARENA_HOMEPAGE }}
       RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Refuse an incomplete benchmark environment
         run: python3 scripts/preflight_external_benchmarks.py --benchmark webarena-official-agent-smoke
       - name: Checkout the pinned official harness
