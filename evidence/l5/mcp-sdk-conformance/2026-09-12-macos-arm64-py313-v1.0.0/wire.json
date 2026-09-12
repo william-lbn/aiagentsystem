@@ -1,0 +1,33 @@
+{
+  "fault_headers": {
+    "mcp-method": "tools/call",
+    "mcp-name": "price_purchase_order",
+    "mcp-protocol-version": "2025-11-25"
+  },
+  "headers": {
+    "mcp-method": "tools/call",
+    "mcp-name": "price_purchase_order",
+    "mcp-protocol-version": "2026-07-28"
+  },
+  "request": {
+    "id": "mcp-l5-1",
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/clientCapabilities": {},
+        "io.modelcontextprotocol/clientInfo": {
+          "name": "agentlab-l5",
+          "version": "1.0.0"
+        },
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+      },
+      "arguments": {
+        "quantity": 12,
+        "tax_bps": 825,
+        "unit_price_cents": 2599
+      },
+      "name": "price_purchase_order"
+    }
+  }
+}

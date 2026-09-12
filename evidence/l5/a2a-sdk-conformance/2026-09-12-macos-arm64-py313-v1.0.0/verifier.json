@@ -1,0 +1,19 @@
+{
+  "all_passed": true,
+  "assertions": {
+    "agent_card_discovered_and_round_trips": true,
+    "artifact_matches_server_effect": true,
+    "client_and_server_are_distinct_processes": true,
+    "descriptor_uses_v1_shape": true,
+    "effect_executed_by_server_process": true,
+    "legacy_shape_rejected": true,
+    "no_legacy_top_level_url": true,
+    "official_package_exact": true,
+    "request_identity_reaches_server": true,
+    "supported_interfaces_on_wire": true,
+    "task_lifecycle_streamed": true
+  },
+  "claim_scope": "official_sdk_jsonrpc_interoperability",
+  "experiment": "a2a-sdk-conformance",
+  "schema_version": 1
+}

@@ -1,0 +1,202 @@
+{
+  "a2a": {
+    "contract_id": "UPSTREAM-A2A-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "A2A Protocol",
+    "pin": "spec v1.0.1 @ 3303592",
+    "source": "https://github.com/a2aproject/A2A",
+    "focus": "AgentCard / Task wire contract",
+    "normal": "从 `/.well-known/agent-card.json` 取得 AgentCard，验证 `supportedInterfaces[]` 至少包含一个带 `url`、`protocolBinding`、`protocolVersion` 的接口；随后发送一条消息并保存返回 Task，验证 `task.status.state` 使用 v1 TaskState。",
+    "fault": "构造旧 v0.3 风格 card（顶层 `url` / `protocolVersion`）或声明客户端不支持的接口版本；验证适配层明确拒绝/降级，而不是把旧字段静默解释成 v1。",
+    "verifier": "保存原始 AgentCard、请求/响应 JSON（或 proto JSON 映射）和 schema/SDK 解析结果；独立断言字段层级与 terminal Task state。",
+    "ceiling": "只有实际运行 pinned A2A implementation 并保存 wire evidence 才能记为 L5_EXTERNAL；本仓库 Core Lab 只证明本地 schema invariant。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "mcp": {
+    "contract_id": "UPSTREAM-MCP-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "Model Context Protocol Python SDK",
+    "pin": "mcp==2.2.0; protocol revision 2026-07-28",
+    "source": "https://github.com/modelcontextprotocol/python-sdk",
+    "focus": "2026-07-28 modern stateless request contract",
+    "normal": "启动 pinned SDK 的最小 client/server，发出 `tools/call`（或等价官方示例），保存 HTTP/JSON-RPC 原始帧；验证 `MCP-Protocol-Version: 2026-07-28` 与 `params._meta[\"io.modelcontextprotocol/protocolVersion\"]` 一致，并核对 `Mcp-Method` / `Mcp-Name` routing headers 以及 client identity/capabilities envelope。",
+    "fault": "故意制造 header/body protocol version 不一致，或缺失 2026-era 必需 envelope 项；保存 SDK/server 的拒绝结果，确认不会被当成合法 modern request。",
+    "verifier": "wire capture + SDK version + server log；独立解析器只检查规范字段，不依赖业务 handler 的“成功”字符串。",
+    "ceiling": "不得把手写 JSON fixture 称为 SDK interoperability；只有真实 Tier-1 SDK wire capture 才是 L5_EXTERNAL。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "openai-agents": {
+    "contract_id": "UPSTREAM-OPENAI-AGENTS-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "OpenAI Agents SDK",
+    "pin": "openai-agents==0.22.0 @ 4df9ecf",
+    "source": "https://github.com/openai/openai-agents-python",
+    "focus": "HITL interruption / durable RunState resume",
+    "normal": "使用官方 `needs_approval` HITL 路径触发一个有可观察副作用的本地 tool；保存 `RunState`，在新进程/新加载点批准**具体 interruption**并恢复原 run，验证副作用计数恰为 1。",
+    "fault": "拒绝该 interruption，或尝试用另一个 call identity 的审批对象替代；验证副作用计数保持 0，run 明确停在拒绝/待处理语义。",
+    "verifier": "独立 side-effect counter/file + serialized RunState + interruption identity + stdout/trace；不能只看 final_output。",
+    "ceiling": "此合同验证 SDK 的 pause/approve/resume 行为；它不证明任意外部 API 的 exactly-once。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "langgraph": {
+    "contract_id": "UPSTREAM-LANGGRAPH-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "LangGraph",
+    "pin": "langgraph==1.2.11 @ 644815f",
+    "source": "https://github.com/langchain-ai/langgraph",
+    "focus": "checkpointer + interrupt/resume",
+    "normal": "用 pinned LangGraph 构造最小 StateGraph，配置 checkpointer 与固定 `thread_id`，在副作用前 `interrupt`；持久化后用 `Command(resume=...)` 恢复并验证状态从暂停点继续。",
+    "fault": "在 interrupt 后模拟进程退出再重新加载同一 thread；验证恢复不会把已确认的前置节点重复计算成第二个外部副作用。若示例使用非幂等 effect，必须用独立计数器揭示重复。",
+    "verifier": "checkpoint backend 内容/版本、节点执行计数、最终 state 与 event/stream 记录四者交叉验证。",
+    "ceiling": "只证明 pinned graph/checkpoint semantics；外部副作用的 exactly-once 仍取决于应用 idempotency/reconciliation。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "adk": {
+    "contract_id": "UPSTREAM-ADK-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "Google Agent Development Kit",
+    "pin": "google-adk==2.1.0 @ 6d15e19",
+    "source": "https://github.com/google/adk-python",
+    "focus": "session state + tool/event trajectory",
+    "normal": "运行 pinned ADK 官方最小 agent/tool 路径，给 tool 一个确定性输入，保存 session/state 与完整 event trajectory，并用业务侧 artifact 验证 tool 的实际结果。",
+    "fault": "让同一 tool 返回受控错误（禁止依赖网络抖动）；验证错误以显式 event/result 进入轨迹，且 session 中不存在伪造的成功 artifact。",
+    "verifier": "版本输出 + event log + session/state dump + 独立 artifact/hash。",
+    "ceiling": "合同不要求真实模型质量；若使用 stub/model fixture只能证明 runtime integration，不能宣传 provider/model E2E。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "maf": {
+    "contract_id": "UPSTREAM-MAF-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "Microsoft Agent Framework",
+    "pin": "agent-framework==1.13.0",
+    "source": "https://github.com/microsoft/agent-framework",
+    "focus": "workflow state / checkpoint / controlled tool failure",
+    "normal": "基于 pinned package 运行官方可支持的最小 workflow/agent，保存 workflow state/event 与 tool artifact；若采用 checkpoint 功能，必须在同一 execution identity 下恢复并核对节点执行次数。",
+    "fault": "在一个确定性 tool 节点注入显式异常或 cancellation；验证 workflow 不生成与失败冲突的成功 artifact，并保存恢复/终止状态。",
+    "verifier": "package version、workflow/event transcript、节点计数与 artifact/hash。",
+    "ceiling": "只有实际执行 pinned 版本才是 L5_EXTERNAL；本合同不假定不同版本之间 checkpoint schema 兼容。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "codex": {
+    "contract_id": "UPSTREAM-CODEX-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "OpenAI Codex CLI",
+    "pin": "0.139.0 historical reproducibility pin",
+    "source": "https://github.com/openai/codex",
+    "focus": "sandboxed workspace edit + test evidence",
+    "normal": "在临时 Git 仓库中给 Codex 一个完全本地、确定性的单文件修改任务；保存命令、版本、`git diff --binary`、测试输出与最终工作树 hash。",
+    "fault": "提供一个会导致测试失败或被 sandbox/permission 拒绝的受控任务；验证失败证据保留，并确认工作区外 sentinel 文件 hash 未变化。",
+    "verifier": "Git diff + test exit code + inside/outside workspace hashes；不能只看模型“已完成”文本。",
+    "ceiling": "结果是 pinned CLI/workspace harness 行为，不是通用 SWE-bench 成绩，也不代表最新 Codex release。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "openhands-sdk": {
+    "contract_id": "UPSTREAM-OPENHANDS-SDK-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "OpenHands Software Agent SDK",
+    "pin": "v1.24.0 @ fdc2bdf",
+    "source": "https://github.com/OpenHands/software-agent-sdk",
+    "focus": "workspace action/event evidence",
+    "normal": "在隔离临时 workspace 中运行 pinned SDK 的官方最小软件代理路径，要求产生一个可验证文件修改或命令 artifact；保存 agent/event transcript 与 workspace diff。",
+    "fault": "让一个确定性 shell/test action 返回非零；验证 event stream 记录失败，且 verifier 不接受“assistant 文本声称成功”作为完成条件。",
+    "verifier": "版本/commit、event transcript、命令 exit code、workspace diff/hash。",
+    "ceiling": "只对 pinned SDK + 本地任务做行为复现；未跑真实 benchmark 时不得外推 SWE-bench/WebArena 成绩。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "dsh": {
+    "contract_id": "UPSTREAM-DSH-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "DeepSeek Harness",
+    "pin": "@deepseek-ai/dsh 0.1.2-rc.1 reproducibility pin",
+    "source": "https://github.com/deepseek-ai/deepseek-harness",
+    "focus": "RC harness session/tool execution evidence",
+    "normal": "在临时 workspace 中运行 pinned RC 的官方最小可执行路径，调用一个确定性本地 tool/command 并保存 session/harness 输出与 artifact。",
+    "fault": "让 tool/command 以确定性非零状态失败；验证 harness 显式记录失败，不把 artifact 缺失包装成成功。",
+    "verifier": "npm/package version、完整命令、event/session log、exit code、artifact/hash。",
+    "ceiling": "这是 release-candidate 历史复现 pin；即使合同通过，也只能说明该 RC 的观测行为，不能宣称 API 稳定或生产成熟。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  },
+  "pi": {
+    "contract_id": "UPSTREAM-PI-001",
+    "status": "EXTERNAL_NOT_RUN_IN_THIS_RELEASE",
+    "title": "Pi Coding Agent",
+    "pin": "@earendil-works/pi-coding-agent 0.85.1",
+    "source": "https://github.com/earendil-works/pi",
+    "focus": "coding workspace edit + failure visibility",
+    "normal": "在临时 Git workspace 中运行 pinned Pi coding agent，执行一个本地确定性编辑任务；保存版本、对话/工具事件、diff 和测试结果。",
+    "fault": "注入会失败的本地 command 或不可满足测试；验证最终证据显示失败，并核对未授权 sentinel/工作区外文件没有变化。",
+    "verifier": "package version + transcript + git diff + test exit code + sentinel hash。",
+    "ceiling": "合同验证 harness/tool 路径，不评价底层模型能力；若需要联网/provider，必须另行记录 provider/model pin。",
+    "required_evidence": [
+      "environment.json",
+      "commands.txt",
+      "stdout.log",
+      "stderr.log",
+      "verifier.json",
+      "artifact-hashes.sha256"
+    ]
+  }
+}

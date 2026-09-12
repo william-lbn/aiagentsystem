@@ -1,0 +1,1 @@
+{"context_id": "procurement-context-017", "decision": {"approved": true, "policy": {"max_amount_cents": 5000000, "max_vendor_risk_bps": 3500}, "purchase_order_id": "PO-2026-0911-017", "reason_codes": []}, "request": {"amount_cents": 4500000, "purchase_order_id": "PO-2026-0911-017", "vendor_risk_bps": 2100}, "server_pid": 16459, "task_id": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721"}

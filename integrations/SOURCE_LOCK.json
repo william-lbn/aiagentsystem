@@ -1,0 +1,602 @@
+{
+  "a2a": {
+    "course_pin": "spec v1.0.1 @ 3303592",
+    "latest_observed": "A2A spec v1.0.1; a2a-python source tag v1.1.4 (published 2026-09-08); PyPI a2a-sdk 1.1.2 (observed 2026-09-11)",
+    "name": "A2A Protocol",
+    "pin": "spec v1.0.1 @ 3303592 (v1.0.0 @ 1736957)",
+    "url": "https://github.com/a2aproject/A2A"
+  },
+  "a2a-python-1.1.4": {
+    "name": "A2A Python SDK release evidence",
+    "pin": "source tag v1.1.4 @ 2d4d304; published 2026-09-08 (PyPI latest remains 1.1.2)",
+    "url": "https://github.com/a2aproject/a2a-python/releases/tag/v1.1.4",
+    "use": "ownership, cancel/subscribe, store correctness"
+  },
+  "aba-agentic-law": {
+    "name": "American Bar Association: Agentic AI and legal supervision",
+    "pin": "2026; observed 2026-09-11",
+    "url": "https://www.americanbar.org/groups/law_practice/resources/law-practice-today/2026/may-june-2026/agentic-ai/",
+    "use": "legal professional responsibility and supervision"
+  },
+  "adk": {
+    "course_pin": "v2.1.0 @ 6d15e19 retained unless upstream lab is re-run",
+    "latest_observed": "google-adk 2.9.0 @ 1679384 (released 2026-09-10, observed 2026-09-11)",
+    "name": "Google Agent Development Kit",
+    "pin": "v2.1.0 @ 6d15e19",
+    "url": "https://github.com/google/adk-python"
+  },
+  "adk-2.9.0": {
+    "name": "Google ADK release evidence",
+    "pin": "2.9.0 @ 1679384; released 2026-09-10",
+    "url": "https://github.com/google/adk-python/releases/tag/v2.9.0",
+    "use": "workflow/runtime ecosystem observation"
+  },
+  "adk-cloud": {
+    "name": "Google ADK documentation",
+    "pin": "docs observed 2026-09-09",
+    "url": "https://google.github.io/adk-docs/"
+  },
+  "agent-memory-systems": {
+    "name": "Agent Memory as a System",
+    "pin": "arXiv:2606.06448; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.06448",
+    "use": "memory systems and control"
+  },
+  "agent-security-bench": {
+    "name": "Agent Security Bench",
+    "pin": "arXiv:2410.02644; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2410.02644",
+    "use": "agent security evaluation"
+  },
+  "agentbench": {
+    "name": "AgentBench",
+    "pin": "arXiv:2308.03688",
+    "url": "https://arxiv.org/abs/2308.03688",
+    "use": "foundational LLM-agent benchmark"
+  },
+  "agentdojo": {
+    "name": "AgentDojo",
+    "pin": "arXiv:2406.13352",
+    "url": "https://arxiv.org/abs/2406.13352",
+    "use": "prompt-injection security benchmark"
+  },
+  "agentdyn": {
+    "name": "AgentDyn",
+    "pin": "arXiv 2602.03117; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2602.03117",
+    "used_for": "dynamic prompt injection security"
+  },
+  "ai-agent-book": {
+    "name": "bojieli/ai-agent-book",
+    "pin": "main; 10 chapters / 109 experiments observed 2026-09-09",
+    "url": "https://github.com/bojieli/ai-agent-book"
+  },
+  "aidev": {
+    "name": "AIDev: Studying AI Coding Agents on GitHub",
+    "pin": "arXiv 2602.09185; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2602.09185",
+    "used_for": "coding agents"
+  },
+  "aip-agent-identity": {
+    "name": "AIP: Agent Identity Protocol for Verifiable Delegation Across MCP and A2A",
+    "pin": "arXiv 2603.24775; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2603.24775",
+    "used_for": "MCP, A2A, multi-agent security"
+  },
+  "anthropic-agents": {
+    "name": "Anthropic: Building Effective Agents",
+    "pin": "official engineering article",
+    "url": "https://www.anthropic.com/engineering/building-effective-agents"
+  },
+  "anthropic-automated-researchers": {
+    "name": "Anthropic: Automated researchers can reliably mitigate alignment failures",
+    "pin": "2026-08-28",
+    "url": "https://www.anthropic.com/research/automated-researchers-mitigate-alignment-failures",
+    "use": "research agents and automated oversight"
+  },
+  "anthropic-cyber-incidents": {
+    "name": "Anthropic: Alignment assessment of recent cybersecurity incidents",
+    "pin": "2026-09-09",
+    "url": "https://www.anthropic.com/research/alignment-assessment-cybersecurity-incidents",
+    "use": "real-world agentic security incidents"
+  },
+  "anthropic-evals": {
+    "name": "Anthropic: Demystifying evals for AI agents",
+    "pin": "2026-01-09",
+    "url": "https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents"
+  },
+  "anthropic-fermat": {
+    "name": "Anthropic: Formalizing Fermat's Last Theorem",
+    "pin": "2026-09-04",
+    "url": "https://www.anthropic.com/research/formalizing-fermats-last-theorem",
+    "use": "long-running research/formalization agent"
+  },
+  "anthropic-harness": {
+    "name": "Anthropic: Harness design for long-running apps",
+    "pin": "2026-03-24",
+    "url": "https://www.anthropic.com/engineering/harness-design-long-running-apps"
+  },
+  "anthropic-infrastructure-noise-2026": {
+    "name": "Anthropic: Quantifying infrastructure noise in agentic coding evals",
+    "pin": "2026-02-05; observed 2026-09-11",
+    "url": "https://www.anthropic.com/engineering/infrastructure-noise",
+    "use": "evaluation infrastructure confounders"
+  },
+  "anthropic-multiagent-2026": {
+    "name": "Anthropic: Patterns and problems in emerging multiagent systems",
+    "pin": "2026-08-13",
+    "url": "https://www.anthropic.com/research/multiagent-systems",
+    "use": "multi-agent coordination and societal/system risks"
+  },
+  "anthropic-tools": {
+    "name": "Anthropic: Writing effective tools for agents",
+    "pin": "official engineering article",
+    "url": "https://www.anthropic.com/engineering/writing-tools-for-agents"
+  },
+  "apb": {
+    "name": "Agent Planning Benchmark",
+    "pin": "arXiv:2606.04874; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.04874",
+    "use": "planning diagnostics; 4,209 cases"
+  },
+  "boe-fsr-2026": {
+    "name": "Bank of England Financial Stability Report July 2026",
+    "pin": "2026-07",
+    "url": "https://www.bankofengland.co.uk/financial-stability-report/2026/july-2026",
+    "use": "autonomous AI in financial markets"
+  },
+  "browsecomp-plus": {
+    "name": "BrowseComp-Plus",
+    "pin": "arXiv:2508.06600; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2508.06600",
+    "use": "browsing/research evaluation"
+  },
+  "browsergym-ecosystem": {
+    "name": "BrowserGym Ecosystem",
+    "pin": "arXiv:2412.05467; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2412.05467",
+    "use": "web-agent environments and evaluation"
+  },
+  "codex": {
+    "latest_observed": "Codex CLI 0.154.0 (released 2026-09-09, observed 2026-09-11)",
+    "name": "OpenAI Codex CLI",
+    "pin": "0.139.0 historical reproducibility pin",
+    "url": "https://github.com/openai/codex"
+  },
+  "codex-0.154.0": {
+    "name": "OpenAI Codex CLI release evidence",
+    "pin": "0.154.0; 2026-09-09",
+    "url": "https://github.com/openai/codex/releases/tag/rust-v0.154.0",
+    "use": "coding agent harness latest-observed release"
+  },
+  "deepresearch-bench": {
+    "name": "DeepResearch Bench",
+    "pin": "arXiv:2506.06287; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2506.06287",
+    "use": "deep-research agent evaluation"
+  },
+  "deployment-time-memory": {
+    "name": "Deployment-Time Memorization in Foundation-Model Agents",
+    "pin": "arXiv:2606.10062; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.10062",
+    "use": "memory privacy, deletion fidelity, forgetting residue"
+  },
+  "dpbench": {
+    "name": "DPBench",
+    "pin": "arXiv 2602.13255; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2602.13255",
+    "used_for": "multi-agent deadlock/coordination"
+  },
+  "dsh": {
+    "name": "DeepSeek Harness",
+    "pin": "@deepseek-ai/dsh 0.1.2-rc.1 reproducibility pin",
+    "url": "https://github.com/deepseek-ai/deepseek-harness"
+  },
+  "dsh-official": {
+    "name": "DeepSeek Harness documentation",
+    "pin": "developer preview",
+    "url": "https://www.deepseek.com/harness/en/"
+  },
+  "eduagentbench": {
+    "name": "EduAgentBench",
+    "pin": "arXiv:2605.14322; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2605.14322",
+    "use": "education agent evaluation"
+  },
+  "fsb-ai-practices": {
+    "name": "Financial Stability Board: Sound Practices for Responsible Adoption of AI",
+    "pin": "consultation report 2026-06-10",
+    "url": "https://www.fsb.org/2026/06/sound-practices-for-responsible-adoption-of-artificial-intelligence-ai-consultation-report/",
+    "use": "financial-sector AI governance"
+  },
+  "healthagentbench": {
+    "name": "HealthAgentBench",
+    "pin": "arXiv:2606.31179; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.31179",
+    "use": "healthcare agent evaluation"
+  },
+  "langchain-hitl": {
+    "name": "LangGraph / LangChain HITL docs",
+    "pin": "docs observed 2026-09-09",
+    "url": "https://docs.langchain.com/oss/python/langchain/human-in-the-loop"
+  },
+  "langgraph": {
+    "name": "LangGraph",
+    "pin": "langgraph==1.2.11 @ 644815f",
+    "url": "https://github.com/langchain-ai/langgraph"
+  },
+  "lats-icml-2024": {
+    "name": "Language Agent Tree Search Unifies Reasoning, Acting, and Planning in Language Models",
+    "pin": "ICML 2024 / PMLR 235",
+    "url": "https://proceedings.mlr.press/v235/zhou24r.html",
+    "use": "search-based agent reasoning/planning"
+  },
+  "letta": {
+    "name": "Letta",
+    "pin": "source observed 2026-09-09",
+    "url": "https://github.com/letta-ai/letta"
+  },
+  "longhorizon-harness": {
+    "name": "LongHorizon-Harness",
+    "pin": "arXiv 2608.01964; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2608.01964",
+    "used_for": "context, planning, state, long-running harness"
+  },
+  "longmemeval-v2": {
+    "name": "LongMemEval-V2",
+    "pin": "arXiv 2605.12493; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2605.12493",
+    "used_for": "memory and web-agent experience"
+  },
+  "maf": {
+    "course_pin": "Python 1.13.0 retained for course notes unless upstream lab is re-run",
+    "latest_observed": "Python 1.18.0 @ 3ad2b07 (released 2026-09-10, observed 2026-09-11)",
+    "name": "Microsoft Agent Framework",
+    "pin": "Python 1.13.0",
+    "url": "https://github.com/microsoft/agent-framework"
+  },
+  "maf-1.18.0": {
+    "name": "Microsoft Agent Framework release evidence",
+    "pin": "Python 1.18.0 @ 3ad2b07; released 2026-09-10",
+    "url": "https://github.com/microsoft/agent-framework/releases/tag/python-1.18.0",
+    "use": "hosting, replay, concurrency contracts"
+  },
+  "maf-checkpoint": {
+    "name": "Microsoft Agent Framework checkpoints",
+    "pin": "docs observed 2026-09-09",
+    "url": "https://learn.microsoft.com/en-us/agent-framework/workflows/checkpoints"
+  },
+  "mcp": {
+    "course_pin": "mcp==2.2.0",
+    "latest_observed": "Python SDK v2.2.0; protocol revision 2026-07-28",
+    "name": "Model Context Protocol Python SDK",
+    "pin": "mcp==2.2.0 (v2 stable line); protocol revision 2026-07-28",
+    "url": "https://github.com/modelcontextprotocol/python-sdk"
+  },
+  "mcp-spec-2026-07-28": {
+    "name": "Model Context Protocol Specification 2026-07-28",
+    "pin": "protocol revision 2026-07-28; observed 2026-09-11",
+    "url": "https://modelcontextprotocol.io/specification/2026-07-28",
+    "use": "normative MCP v2 protocol semantics"
+  },
+  "mcp-spec-release-2026-07-28": {
+    "name": "Model Context Protocol: The 2026-07-28 Specification",
+    "pin": "published 2026-07-28; observed 2026-09-11",
+    "status": "DOC_VERIFIED",
+    "url": "https://blog.modelcontextprotocol.io/posts/2026-07-28/",
+    "use": "MCP modern stateless protocol release semantics and migration context"
+  },
+  "mem0": {
+    "name": "Mem0",
+    "pin": "source observed 2026-09-09",
+    "url": "https://github.com/mem0ai/mem0"
+  },
+  "mem2actbench": {
+    "name": "Mem2ActBench",
+    "pin": "arXiv 2601.19935; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2601.19935",
+    "used_for": "memory/tool grounding"
+  },
+  "memgym": {
+    "name": "MemGym",
+    "pin": "arXiv:2605.20833; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2605.20833",
+    "use": "agent memory evaluation"
+  },
+  "memora": {
+    "name": "Memora: From Recall to Forgetting",
+    "pin": "arXiv 2604.20006; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2604.20006",
+    "used_for": "memory"
+  },
+  "memory-survey-2026": {
+    "name": "Memory for AI Agents Survey",
+    "pin": "arXiv:2603.07670; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2603.07670",
+    "use": "agent memory taxonomy and research gaps"
+  },
+  "mlebench": {
+    "name": "OpenAI MLE-bench",
+    "pin": "2024 benchmark",
+    "url": "https://openai.com/index/mle-bench/"
+  },
+  "multiagentbench": {
+    "name": "MultiAgentBench",
+    "pin": "arXiv 2503.01935; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2503.01935",
+    "used_for": "multi-agent"
+  },
+  "nist-agent-identity": {
+    "name": "NIST: Accelerating adoption of software and AI agent identity",
+    "pin": "2026-02-05",
+    "url": "https://csrc.nist.gov/pubs/other/2026/02/05/accelerating-the-adoption-of-software-and-ai-agent/ipd",
+    "use": "agent identity and delegated authority"
+  },
+  "nist-agent-standards": {
+    "name": "NIST AI Agent Standards Initiative",
+    "pin": "2026 initiative; observed 2026-09-11",
+    "url": "https://www.nist.gov/artificial-intelligence/ai-agent-standards-initiative",
+    "use": "agent interoperability, standards, security"
+  },
+  "nist-ai-800-5": {
+    "name": "NIST AI 800-5: Security Considerations for AI Agents",
+    "pin": "published 2026-05-18",
+    "url": "https://csrc.nist.gov/pubs/ai/800/5/final",
+    "use": "agent threats, mitigations, assessment"
+  },
+  "nvidia-skild-s1": {
+    "name": "NVIDIA/Skild AI S1 Physical AI",
+    "pin": "2026; observed 2026-09-11",
+    "url": "https://blogs.nvidia.com/blog/skild-ai-s1-physical-ai/",
+    "use": "physical AI foundation model/robotics industry signal"
+  },
+  "ogx": {
+    "name": "OGX: Open GenAI Stack",
+    "pin": "arXiv 2608.14580; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2608.14580",
+    "used_for": "production API, deployment, agentic application server"
+  },
+  "openai-agents": {
+    "course_pin": "v0.22.0 @ 4df9ecf for reproducible source notes",
+    "latest_observed": "v0.22.2 @ 83c737f (released 2026-09-09, observed 2026-09-11)",
+    "name": "OpenAI Agents SDK",
+    "pin": "v0.22.0 @ 4df9ecf",
+    "url": "https://github.com/openai/openai-agents-python"
+  },
+  "openai-agents-0.22.2": {
+    "name": "OpenAI Agents SDK release evidence",
+    "pin": "v0.22.2 @ 83c737f; 2026-09-09",
+    "url": "https://github.com/openai/openai-agents-python/releases/tag/v0.22.2",
+    "use": "latest-observed runtime/sandbox/session hardening"
+  },
+  "openai-agents-work": {
+    "name": "OpenAI: How agents are transforming work",
+    "pin": "2026-06-25",
+    "url": "https://openai.com/index/how-agents-are-transforming-work/",
+    "use": "long-horizon delegated tasks and work patterns"
+  },
+  "openai-api-agents": {
+    "name": "OpenAI Agents documentation",
+    "pin": "docs observed 2026-09-09",
+    "url": "https://openai.github.io/openai-agents-python/"
+  },
+  "openai-browsecomp": {
+    "name": "OpenAI BrowseComp",
+    "pin": "official benchmark",
+    "url": "https://openai.com/index/browsecomp/",
+    "use": "deep web browsing/research evaluation"
+  },
+  "openai-coding-evals": {
+    "name": "OpenAI: Separating signal from noise in coding evaluations",
+    "pin": "2026-07-08",
+    "url": "https://openai.com/index/separating-signal-from-noise-coding-evaluations/",
+    "use": "benchmark validity and broken tasks"
+  },
+  "openai-computer-use": {
+    "name": "OpenAI computer-using agent",
+    "pin": "official product/research page",
+    "url": "https://openai.com/index/computer-using-agent/",
+    "use": "computer-use agent architecture and safety"
+  },
+  "openai-data-agent": {
+    "name": "OpenAI: Now everyone can put data to work",
+    "pin": "2026-09-10",
+    "url": "https://openai.com/index/put-data-to-work/",
+    "use": "Data agent, enterprise data analysis"
+  },
+  "openai-financial-services-2026": {
+    "name": "OpenAI: ChatGPT for Financial Services",
+    "pin": "2026-09-10",
+    "url": "https://openai.com/index/introducing-chatgpt-financial-services/",
+    "use": "financial research/modeling product signal"
+  },
+  "openai-gdpval": {
+    "name": "OpenAI GDPval",
+    "pin": "official evaluation; observed 2026-09-11",
+    "url": "https://openai.com/index/gdpval/",
+    "use": "economically valuable task evaluation"
+  },
+  "openai-next-agents-sdk": {
+    "name": "OpenAI: The next evolution of the Agents SDK",
+    "pin": "2026-04-15",
+    "url": "https://openai.com/index/the-next-evolution-of-the-agents-sdk/",
+    "use": "model-native harness, sandbox, long-horizon execution"
+  },
+  "openai-research-acceleration": {
+    "name": "OpenAI: Research acceleration",
+    "pin": "2026-09-06",
+    "url": "https://openai.com/index/research-acceleration-view-inside-openai/",
+    "use": "research agent workflows and scientific acceleration"
+  },
+  "openai-scientific-computing": {
+    "name": "OpenAI: Scientific computing and agentic AI",
+    "pin": "2026-07-28",
+    "url": "https://openai.com/index/scientific-computing-agentic-ai/",
+    "use": "scientific computing agents"
+  },
+  "openai-work-expansion": {
+    "name": "OpenAI: How AI is expanding what people do at work",
+    "pin": "2026-07-27",
+    "url": "https://openai.com/index/how-ai-is-expanding-what-people-do-at-work/",
+    "use": "work-task boundary analysis"
+  },
+  "openhands-docs": {
+    "name": "OpenHands SDK architecture",
+    "pin": "docs observed 2026-09-09",
+    "url": "https://docs.openhands.dev/sdk/arch/overview"
+  },
+  "openhands-sdk": {
+    "course_pin": "v1.24.0 @ fdc2bdf",
+    "latest_observed": "v1.24.0 @ fdc2bdf observed in GitHub release search 2026-09-10",
+    "name": "OpenHands Software Agent SDK",
+    "pin": "v1.24.0 @ fdc2bdf",
+    "url": "https://github.com/OpenHands/software-agent-sdk"
+  },
+  "osworld": {
+    "name": "OSWorld",
+    "pin": "benchmark source observed 2026-09-09",
+    "url": "https://github.com/xlang-ai/OSWorld"
+  },
+  "osworld2": {
+    "name": "OSWorld 2.0",
+    "pin": "arXiv:2606.29537; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.29537",
+    "use": "computer-use agent evaluation"
+  },
+  "otel-genai": {
+    "name": "OpenTelemetry GenAI semantic conventions",
+    "pin": "repository observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai",
+    "used_for": "observability"
+  },
+  "owasp-agent-control-standard": {
+    "name": "OWASP Agent Control Standard (ACS)",
+    "pin": "2026-09-01; observed 2026-09-11",
+    "url": "https://genai.owasp.org/resource/agent-control-standard-acs/",
+    "use": "runtime control hooks, transparency, portable policy enforcement"
+  },
+  "owasp-agentic-top10-2026": {
+    "name": "OWASP Top 10 for Agentic Applications for 2026",
+    "pin": "Version 2026; published 2025-12-09; observed 2026-09-11",
+    "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+    "use": "agentic threat model and mitigations"
+  },
+  "owasp-llm-top10-2026": {
+    "name": "OWASP GenAI LLM Top 10 2026",
+    "pin": "2026-08-03; observed 2026-09-11",
+    "url": "https://genai.owasp.org/resource/owasp-genai-llm-top-10-2026/",
+    "use": "current LLM application security risks and cross-framework mapping"
+  },
+  "paperbench": {
+    "name": "OpenAI PaperBench",
+    "pin": "2025 benchmark",
+    "url": "https://openai.com/index/paperbench/"
+  },
+  "pi": {
+    "course_pin": "treat 0.85.1 as NOT_RUN_EXTERNAL until npm install is executed",
+    "latest_observed": "GitHub releases show v0.83.0; package/version references around 0.85.1 require external package verification",
+    "name": "Pi Coding Agent",
+    "pin": "@earendil-works/pi-coding-agent 0.85.1",
+    "url": "https://github.com/earendil-works/pi"
+  },
+  "react": {
+    "name": "ReAct: Synergizing Reasoning and Acting in Language Models",
+    "pin": "arXiv:2210.03629",
+    "url": "https://arxiv.org/abs/2210.03629",
+    "use": "foundational reasoning/action trajectories"
+  },
+  "reflexion-2023": {
+    "name": "Reflexion: Language Agents with Verbal Reinforcement Learning",
+    "pin": "arXiv:2303.11366; 2023",
+    "url": "https://arxiv.org/abs/2303.11366",
+    "use": "self-reflection and episodic feedback baseline"
+  },
+  "sciagentarena": {
+    "name": "SciAgentArena",
+    "pin": "arXiv:2606.12736; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2606.12736",
+    "use": "scientific research agents"
+  },
+  "semantic-transactions": {
+    "name": "Semantic Transactions for Tool-Using LLM Agents",
+    "pin": "arXiv 2606.17573; observed 2026-09-10",
+    "status": "DOC_VERIFIED",
+    "url": "https://arxiv.org/abs/2606.17573",
+    "used_for": "tool-runtime, checkpoint/journal, effect-recovery"
+  },
+  "smolagents": {
+    "name": "Hugging Face smolagents",
+    "pin": "source observed 2026-09-09",
+    "url": "https://github.com/huggingface/smolagents"
+  },
+  "swe-bench": {
+    "name": "SWE-bench",
+    "pin": "benchmark source observed 2026-09-09",
+    "url": "https://github.com/swe-bench/SWE-bench"
+  },
+  "thomson-professional-services-2026": {
+    "name": "Thomson Reuters 2026 AI in Professional Services Report",
+    "pin": "2026 report; observed 2026-09-11",
+    "url": "https://www.thomsonreuters.com/en/institute/reports/2026-ai-in-professional-services-report",
+    "use": "professional services adoption and ROI"
+  },
+  "toolformer": {
+    "name": "Toolformer: Language Models Can Teach Themselves to Use Tools",
+    "pin": "arXiv:2302.04761",
+    "url": "https://arxiv.org/abs/2302.04761",
+    "use": "foundational tool-use learning"
+  },
+  "toolverse": {
+    "name": "ToolVerse",
+    "pin": "arXiv:2607.15660; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2607.15660",
+    "use": "agentic RL, massive MCP tool environments"
+  },
+  "tree-of-thoughts-neurips-2023": {
+    "name": "Tree of Thoughts: Deliberate Problem Solving with Large Language Models",
+    "pin": "NeurIPS 2023",
+    "url": "https://proceedings.neurips.cc/paper_files/paper/2023/hash/271db9922b8d1f4dd7aaef84ed5ac703-Abstract-Conference.html",
+    "use": "deliberate search/planning baseline"
+  },
+  "voyager-2023": {
+    "name": "Voyager: An Open-Ended Embodied Agent with Large Language Models",
+    "pin": "arXiv:2305.16291; 2023",
+    "url": "https://arxiv.org/abs/2305.16291",
+    "use": "skill library and embodied lifelong learning baseline"
+  },
+  "webarena": {
+    "name": "WebArena: A Realistic Web Environment for Building Autonomous Agents",
+    "pin": "arXiv:2307.13854",
+    "url": "https://arxiv.org/abs/2307.13854",
+    "use": "web-agent environment/evaluation"
+  },
+  "wef-agent-playbook": {
+    "name": "WEF: AI Agents in Action",
+    "pin": "2026-05-26",
+    "url": "https://www.weforum.org/publications/ai-agents-in-action-a-playbook-for-trusted-adoption-authorization-and-scaling/",
+    "use": "trusted adoption, authorization and scaling"
+  },
+  "wef-financial-services-playbook": {
+    "name": "WEF AI Playbook for Financial Services",
+    "pin": "2026; observed 2026-09-11",
+    "url": "https://www.weforum.org/publications/ai-playbook-for-financial-services/",
+    "use": "financial services AI strategy/governance"
+  },
+  "wef-manufacturing-agents": {
+    "name": "WEF: Agentic AI in manufacturing",
+    "pin": "2026-06; observed 2026-09-11",
+    "url": "https://www.weforum.org/stories/2026/06/agentic-ai-manufacturing/",
+    "use": "industrial agent adoption and governance"
+  }
+}

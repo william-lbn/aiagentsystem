@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If this project supports your teaching, research or engineering work, please cite it using this metadata."
+title: "AI Agent Systems: From Models and Runtime to Protocols and Production Reliability"
+type: software
+version: 1.0.0
+date-released: 2026-09-11
+authors:
+  - name: "william-lbn and contributors"
+repository-code: "https://github.com/william-lbn/aiagentsystem"
+url: "https://github.com/william-lbn/aiagentsystem"
+license: MIT
+keywords:
+  - AI agents
+  - agent runtime
+  - MCP
+  - A2A
+  - durable execution
+  - reproducible systems education
+abstract: >-
+  A Chinese open-source book, executable lab suite and reference runtime for
+  building, evaluating and operating AI Agent systems with explicit evidence
+  boundaries and reproducible release tooling.

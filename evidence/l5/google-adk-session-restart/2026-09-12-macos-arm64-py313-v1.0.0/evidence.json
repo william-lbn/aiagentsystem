@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official ADK DatabaseSessionService persists session state and Event trajectories across fresh OS processes with controlled approve/deny outcomes",
+  "claim_ceiling": "Proves database-backed session and event durability only; it does not prove resumable instruction pointer, model-provider execution, or arbitrary tool exactly-once semantics.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "cross_process_sqlite_session_and_events",
+    "environment": "synthetic_no_model",
+    "execution_boundary": "two_fresh_os_processes",
+    "fault_injection": "deterministic_policy_denial",
+    "reproduction": "single_host",
+    "verifier": "database_event_trajectory_state_and_business_artifact"
+  },
+  "executed_at_utc": "2026-09-12T09:26:34.317714+00:00",
+  "exit_code": 0,
+  "experiment": "google-adk-session-restart",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "b1b41f4a59fb97a933d35b0576c278aa3ccfa50acccefa169c0af9b6ef58bb02",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

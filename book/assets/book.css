@@ -1,0 +1,6 @@
+
+:root{--ink:#17202a;--muted:#566573;--rule:#d5d8dc;--accent:#1f618d;--soft:#f7f9fb}
+body{max-width:1080px;margin:auto;padding:2rem 3rem;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;line-height:1.75}
+h1{margin-top:3rem;border-bottom:2px solid #17202a;padding-bottom:.35rem}h2{margin-top:2.15rem;border-left:5px solid var(--accent);padding-left:.7rem}h3{margin-top:1.45rem;color:#34495e}
+blockquote{background:#f7f9f9;border-left:4px solid #85929e;margin:1rem 0;padding:.72rem 1rem}pre{overflow:auto;background:#f4f6f7;padding:1rem;border-radius:6px}code{font-family:"DejaVu Sans Mono",monospace}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.92em}th,td{border:1px solid var(--rule);padding:.48rem .62rem;vertical-align:top}img,svg{max-width:100%;height:auto;display:block;margin:1.2rem auto}#TOC{background:#fbfcfc;border:1px solid var(--rule);padding:1rem 1.4rem}

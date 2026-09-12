@@ -1,0 +1,11 @@
+services:
+  agentops:
+    build:
+      context: .
+      dockerfile: production/agentops_service/Dockerfile
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./production/agentops_service/data:/app/production/agentops_service/data
+    environment:
+      - PYTHONUNBUFFERED=1

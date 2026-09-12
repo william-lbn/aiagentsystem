@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible defect in code, experiments or publication output
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not report security vulnerabilities or include secrets here. Use private vulnerability reporting instead."
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v1.0.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Runtime or library code
+        - Core Lab or example
+        - Protocol or L5 experiment
+        - Book or documentation
+        - Build or release
+        - Website, workbook or slides
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Python, Docker/Quarto when relevant
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Exact commands, inputs and sanitized logs
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed API keys, cookies, personal data and proprietary traces.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

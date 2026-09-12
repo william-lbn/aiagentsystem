@@ -1,0 +1,20 @@
+{
+  "executable": "/Users/williamlee/AI/AI-Agent-Systems-Course/.build/l5/a2a/.venv/bin/python",
+  "expected_packages": {
+    "a2a-sdk": "1.1.2"
+  },
+  "machine": "arm64",
+  "os": "Darwin",
+  "os_release": "25.6.0",
+  "package_pins_match": true,
+  "packages": {
+    "a2a-sdk": "1.1.2"
+  },
+  "platform": "macOS-26.6.1-arm64-arm-64bit-Mach-O",
+  "processor": "arm",
+  "python": "3.13.5 (main, Jun 11 2025, 15:36:57) [Clang 17.0.0 (clang-1700.0.13.3)]",
+  "pythonpath": ".venv/lib/python3.13/site-packages",
+  "schema_version": 2,
+  "secret_filter": "deny names matching API_KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL(S)",
+  "secret_variable_count_removed": 0
+}

@@ -1,0 +1,75 @@
+{
+  "client_pid": 16347,
+  "modern_route": "InboundModernRoute(protocol_version='2026-07-28', client_info={'name': 'agentlab-l5', 'version': '1.0.0'}, client_capabilities={})",
+  "negotiated_protocol": "2026-07-28",
+  "packages": {
+    "mcp": "2.2.0",
+    "mcp-types": "2.2.0"
+  },
+  "rejection": "InboundLadderRejection(code=-32020, message=\"mcp-protocol-version header does not match the request envelope's protocol version\", data=None)",
+  "server_effect": {
+    "quantity": 12,
+    "server_pid": 16348,
+    "tax_bps": 825,
+    "total_cents": 33761,
+    "unit_price_cents": 2599
+  },
+  "server_process": {
+    "pid": 16348,
+    "returncode_after_termination": -15,
+    "stderr": "INFO:     Started server process [16348]\nINFO:     Waiting for application startup.\n[09/12/26 17:26:54] INFO     StreamableHTTP       streamable_http_manager.py:162\n                             session manager                                    \n                             started                                            \nINFO:     Application startup complete.\nINFO:     Uvicorn running on http://127.0.0.1:53144 (Press CTRL+C to quit)\nINFO:     Shutting down\nINFO:     Waiting for application shutdown.\n                    INFO     StreamableHTTP       streamable_http_manager.py:166\n                             session manager                                    \n                             shutting down                                      \nINFO:     Application shutdown complete.\nINFO:     Finished server process [16348]\n",
+    "stdout": "INFO:     127.0.0.1:53160 - \"POST /mcp HTTP/1.1\" 200 OK\nINFO:     127.0.0.1:53162 - \"POST /mcp HTTP/1.1\" 200 OK\n"
+  },
+  "tool_result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "agentlab-l5",
+        "version": "1.0.0"
+      }
+    },
+    "content": [
+      {
+        "_meta": null,
+        "annotations": null,
+        "text": "33761",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "resultType": "complete",
+    "structuredContent": null
+  },
+  "wire": {
+    "fault_headers": {
+      "mcp-method": "tools/call",
+      "mcp-name": "price_purchase_order",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "headers": {
+      "mcp-method": "tools/call",
+      "mcp-name": "price_purchase_order",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "request": {
+      "id": "mcp-l5-1",
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "agentlab-l5",
+            "version": "1.0.0"
+          },
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+        },
+        "arguments": {
+          "quantity": 12,
+          "tax_bps": 825,
+          "unit_price_cents": 2599
+        },
+        "name": "price_purchase_order"
+      }
+    }
+  }
+}

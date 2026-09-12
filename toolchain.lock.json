@@ -1,0 +1,15 @@
+{
+  "verified_on": "2026-09-11",
+  "scope": "local Pandoc compatibility release",
+  "python": "3.13.5",
+  "pandoc": "3.11",
+  "xelatex": "TeX Live 2025",
+  "graphviz": "14.0.1",
+  "fonts": [
+    "Noto Serif CJK SC",
+    "Noto Sans CJK SC",
+    "Noto Sans Mono CJK SC"
+  ],
+  "canonical_quarto": "1.11.1 (defined but not run on this host)",
+  "note": "Exact Python dependency resolution is in uv.lock. These host tools describe the verified compatibility environment; canonical OCI runtime is a follow-on CI hardening path."
+}

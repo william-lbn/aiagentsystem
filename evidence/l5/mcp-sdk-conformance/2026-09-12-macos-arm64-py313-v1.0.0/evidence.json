@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official SDK client and server execute a Streamable HTTP tool call across separate OS processes, plus the SDK's modern HTTP request-classification behavior",
+  "claim_ceiling": "Proves Python-to-Python loopback Streamable HTTP only; it does not prove cross-language interoperability, remote-network behavior, authorization, provider behavior, or production security.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "not_exercised",
+    "environment": "loopback_http_synthetic_tool",
+    "execution_boundary": "two_os_processes_over_loopback_streamable_http",
+    "fault_injection": "deterministic_header_body_mismatch",
+    "reproduction": "single_host",
+    "verifier": "server_process_effect_record_and_machine_assertions"
+  },
+  "executed_at_utc": "2026-09-12T09:26:54.795691+00:00",
+  "exit_code": 0,
+  "experiment": "mcp-sdk-conformance",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "c157f1cdbd4a3848da54ac402fcf3f1e5e92285b40b78214086de5247d869363",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

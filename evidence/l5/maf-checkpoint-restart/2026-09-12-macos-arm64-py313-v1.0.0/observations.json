@@ -1,0 +1,47 @@
+{
+  "checkpoint_files": [
+    "24a582d3-d316-420b-818e-c01fe036a74f.json",
+    "7aa591b9-2a53-4b27-8c69-5c40055222db.json",
+    "c05d0a2e-39cc-4951-8530-4a63ad0408b7.json"
+  ],
+  "effects": [
+    {
+      "applied_by_pid": 16336,
+      "change_id": "chg-2026-0911-017",
+      "release": "agent-runtime-13.1"
+    }
+  ],
+  "note": "The first process hard-exits after the first durable superstep. A new process rejects a changed graph and resumes the canonical graph from FileCheckpointStorage.",
+  "processes": {
+    "persist": {
+      "result": {
+        "checkpoint_id": "24a582d3-d316-420b-818e-c01fe036a74f",
+        "graph_signature_hash": "2e70ffc1a897a7007d431e326e8e7dbf27e9dd63b34836c88979aee81651c24b",
+        "iteration": 1,
+        "phase": "persist",
+        "pid": 16335
+      },
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\"checkpoint_id\": \"24a582d3-d316-420b-818e-c01fe036a74f\", \"graph_signature_hash\": \"2e70ffc1a897a7007d431e326e8e7dbf27e9dd63b34836c88979aee81651c24b\", \"iteration\": 1, \"phase\": \"persist\", \"pid\": 16335}\n"
+    },
+    "resume": {
+      "result": {
+        "checkpoint_id": "24a582d3-d316-420b-818e-c01fe036a74f",
+        "final_state": "IDLE",
+        "mismatch_error": "WorkflowCheckpointException: Workflow graph has changed since the checkpoint was created. Please rebuild the original workflow before resuming.",
+        "mismatch_rejected": true,
+        "outputs": [
+          "{\"applied_by_pid\": 16336, \"change_id\": \"chg-2026-0911-017\", \"release\": \"agent-runtime-13.1\", \"status\": \"applied\"}"
+        ],
+        "phase": "resume",
+        "pid": 16336,
+        "restored_graph_signature_hash": "2e70ffc1a897a7007d431e326e8e7dbf27e9dd63b34836c88979aee81651c24b",
+        "restored_iteration": 1
+      },
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\"checkpoint_id\": \"24a582d3-d316-420b-818e-c01fe036a74f\", \"final_state\": \"IDLE\", \"mismatch_error\": \"WorkflowCheckpointException: Workflow graph has changed since the checkpoint was created. Please rebuild the original workflow before resuming.\", \"mismatch_rejected\": true, \"outputs\": [\"{\\\"applied_by_pid\\\": 16336, \\\"change_id\\\": \\\"chg-2026-0911-017\\\", \\\"release\\\": \\\"agent-runtime-13.1\\\", \\\"status\\\": \\\"applied\\\"}\"], \"phase\": \"resume\", \"pid\": 16336, \"restored_graph_signature_hash\": \"2e70ffc1a897a7007d431e326e8e7dbf27e9dd63b34836c88979aee81651c24b\", \"restored_iteration\": 1}\n"
+    }
+  }
+}

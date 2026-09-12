@@ -1,0 +1,62 @@
+{
+  "all_ready": false,
+  "claim": "environment readiness only; not benchmark execution evidence",
+  "generated_at_utc": "2026-09-11T14:39:49.645410+00:00",
+  "host": {
+    "machine": "arm64",
+    "platform": "macOS-26.6.1-arm64-arm-64bit-Mach-O"
+  },
+  "results": [
+    {
+      "benchmark": "swebench-lite-agent-smoke",
+      "checks": {
+        "docker_cli_present": true,
+        "docker_daemon_reachable": true,
+        "free_disk_at_least_120_gib": false,
+        "openai_api_key_present": false
+      },
+      "declared_status": "NOT_EXECUTED_IN_THIS_RELEASE",
+      "observations": {
+        "docker": {
+          "cli_present": true,
+          "daemon_reachable": true,
+          "error": null,
+          "server_version": "27.4.0"
+        },
+        "free_disk_bytes": 87892013056
+      },
+      "ready": false,
+      "secret_values_recorded": false
+    },
+    {
+      "benchmark": "webarena-official-agent-smoke",
+      "checks": {
+        "all_self_hosted_site_endpoints_present": false,
+        "docker_cli_present": true,
+        "docker_daemon_reachable": true,
+        "openai_api_key_present": false
+      },
+      "declared_status": "NOT_EXECUTED_IN_THIS_RELEASE",
+      "observations": {
+        "docker": {
+          "cli_present": true,
+          "daemon_reachable": true,
+          "error": null,
+          "server_version": "27.4.0"
+        },
+        "site_endpoint_presence": {
+          "GITLAB": false,
+          "HOMEPAGE": false,
+          "MAP": false,
+          "REDDIT": false,
+          "SHOPPING": false,
+          "SHOPPING_ADMIN": false,
+          "WIKIPEDIA": false
+        }
+      },
+      "ready": false,
+      "secret_values_recorded": false
+    }
+  ],
+  "schema_version": 1
+}

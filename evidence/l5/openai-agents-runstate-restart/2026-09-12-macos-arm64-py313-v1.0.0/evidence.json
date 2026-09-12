@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official Agents SDK tool approval RunState is serialized, restored, approved or rejected, and resumed in a fresh OS process with exact call identity",
+  "claim_ceiling": "Uses the SDK's deterministic ScriptedModel and a local tool; it does not prove a hosted model/provider path or exactly-once delivery to an external API.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "cross_process_runstate_json",
+    "environment": "synthetic_model_local_tool",
+    "execution_boundary": "two_fresh_os_processes",
+    "fault_injection": "deterministic_tool_rejection",
+    "reproduction": "single_host",
+    "verifier": "serialized_call_identity_and_side_effect_counter"
+  },
+  "executed_at_utc": "2026-09-12T09:26:27.703798+00:00",
+  "exit_code": 0,
+  "experiment": "openai-agents-runstate-restart",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "7c542aa21f453a6845a3dbf770839de5b471b292a23202fa946b788cf7af3fe8",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

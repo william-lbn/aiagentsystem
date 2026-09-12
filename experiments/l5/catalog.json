@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "evidence_model": "L5 claims are vectors, not a single pass/fail scalar",
+  "experiments": {
+    "mcp-sdk-conformance": {
+      "framework": "Model Context Protocol Python SDK",
+      "script": "experiments/l5/mcp_sdk_conformance.py",
+      "packages": {
+        "mcp": "2.2.0",
+        "mcp-types": "2.2.0"
+      },
+      "authority": "official_release",
+      "source": "https://github.com/modelcontextprotocol/python-sdk/tree/v2.2.0",
+      "claim": "official SDK client and server execute a Streamable HTTP tool call across separate OS processes, plus the SDK's modern HTTP request-classification behavior",
+      "claim_ceiling": "Proves Python-to-Python loopback Streamable HTTP only; it does not prove cross-language interoperability, remote-network behavior, authorization, provider behavior, or production security.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "two_os_processes_over_loopback_streamable_http",
+        "fault_injection": "deterministic_header_body_mismatch",
+        "verifier": "server_process_effect_record_and_machine_assertions",
+        "durability": "not_exercised",
+        "environment": "loopback_http_synthetic_tool",
+        "reproduction": "single_host"
+      }
+    },
+    "a2a-sdk-conformance": {
+      "framework": "A2A Python SDK",
+      "script": "experiments/l5/a2a_sdk_conformance.py",
+      "packages": {
+        "a2a-sdk": "1.1.2"
+      },
+      "authority": "official_release",
+      "source": "https://github.com/a2aproject/a2a-python/tree/v1.1.2",
+      "protocol_source": "https://github.com/a2aproject/A2A/tree/v1.0.1",
+      "claim": "official SDK client discovers an AgentCard and streams a JSON-RPC task lifecycle from an official server in a separate OS process, plus explicit rejection of legacy top-level card fields",
+      "claim_ceiling": "Proves Python-to-Python JSON-RPC over loopback only; it does not prove cross-language interoperability, HTTP+JSON/gRPC parity, remote authorization, task-store durability, or cancellation/subscription behavior.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "two_os_processes_over_loopback_jsonrpc",
+        "fault_injection": "deterministic_legacy_wire_shape",
+        "verifier": "server_process_effect_task_lifecycle_and_descriptor_assertions",
+        "durability": "not_exercised",
+        "environment": "loopback_jsonrpc_deterministic_policy_agent",
+        "reproduction": "single_host"
+      }
+    },
+    "openai-agents-runstate-restart": {
+      "framework": "OpenAI Agents SDK",
+      "script": "experiments/l5/openai_agents_runstate_restart.py",
+      "packages": {
+        "openai-agents": "0.22.0"
+      },
+      "authority": "official_release",
+      "source": "https://openai.github.io/openai-agents-python/human_in_the_loop/",
+      "claim": "official Agents SDK tool approval RunState is serialized, restored, approved or rejected, and resumed in a fresh OS process with exact call identity",
+      "claim_ceiling": "Uses the SDK's deterministic ScriptedModel and a local tool; it does not prove a hosted model/provider path or exactly-once delivery to an external API.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "two_fresh_os_processes",
+        "fault_injection": "deterministic_tool_rejection",
+        "verifier": "serialized_call_identity_and_side_effect_counter",
+        "durability": "cross_process_runstate_json",
+        "environment": "synthetic_model_local_tool",
+        "reproduction": "single_host"
+      }
+    },
+    "google-adk-session-restart": {
+      "framework": "Google Agent Development Kit",
+      "script": "experiments/l5/google_adk_session_restart.py",
+      "packages": {
+        "aiosqlite": "0.22.1",
+        "google-adk": "2.1.0",
+        "greenlet": "3.3.2",
+        "sqlalchemy": "2.0.52"
+      },
+      "authority": "official_release",
+      "source": "https://github.com/google/adk-python/tree/v2.1.0",
+      "claim": "official ADK DatabaseSessionService persists session state and Event trajectories across fresh OS processes with controlled approve/deny outcomes",
+      "claim_ceiling": "Proves database-backed session and event durability only; it does not prove resumable instruction pointer, model-provider execution, or arbitrary tool exactly-once semantics.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "two_fresh_os_processes",
+        "fault_injection": "deterministic_policy_denial",
+        "verifier": "database_event_trajectory_state_and_business_artifact",
+        "durability": "cross_process_sqlite_session_and_events",
+        "environment": "synthetic_no_model",
+        "reproduction": "single_host"
+      }
+    },
+    "langgraph-durable-restart": {
+      "framework": "LangGraph",
+      "script": "experiments/l5/langgraph_durable_restart.py",
+      "packages": {
+        "langgraph": "1.2.11",
+        "langgraph-checkpoint-sqlite": "3.1.1"
+      },
+      "authority": "official_release",
+      "source": "https://github.com/langchain-ai/langgraph/tree/1.2.11",
+      "claim": "official StateGraph and SQLite checkpointer resume approve/reject paths in fresh OS processes with replay and side-effect observations",
+      "claim_ceiling": "Does not prove distributed database failover, arbitrary graph migration, or exactly-once external effects; node-prefix replay requires application idempotency.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "two_fresh_os_processes",
+        "fault_injection": "deterministic_rejection_and_process_boundary",
+        "verifier": "checkpoint_file_process_ids_and_side_effect_counter",
+        "durability": "cross_process_sqlite_checkpoint",
+        "environment": "synthetic",
+        "reproduction": "single_host"
+      }
+    },
+    "maf-checkpoint-restart": {
+      "framework": "Microsoft Agent Framework Core",
+      "script": "experiments/l5/maf_checkpoint_restart.py",
+      "packages": {
+        "agent-framework-core": "1.13.0"
+      },
+      "authority": "official_release",
+      "source": "https://github.com/microsoft/agent-framework/tree/python-1.13.0",
+      "claim": "official WorkflowBuilder and FileCheckpointStorage resume a canonical graph after a hard process boundary and reject a changed graph signature",
+      "claim_ceiling": "Uses the core workflow package and local file storage on one host; it does not prove the meta-package integrations, distributed storage failover, graph migration, or exactly-once external APIs.",
+      "evidence_vector": {
+        "authority": "official_release",
+        "execution_boundary": "hard_exit_then_fresh_os_process",
+        "fault_injection": "process_loss_and_changed_graph_signature",
+        "verifier": "checkpoint_lineage_graph_hash_output_and_side_effect_counter",
+        "durability": "cross_process_file_checkpoint",
+        "environment": "synthetic_no_model",
+        "reproduction": "single_host"
+      }
+    }
+  }
+}

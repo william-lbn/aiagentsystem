@@ -1,0 +1,12 @@
+{
+  "approve": {
+    "call_id": "call-approve-001",
+    "decision": "approve",
+    "serialized_state": "approve/run_state.json"
+  },
+  "reject": {
+    "call_id": "call-reject-001",
+    "decision": "reject",
+    "serialized_state": "reject/run_state.json"
+  }
+}

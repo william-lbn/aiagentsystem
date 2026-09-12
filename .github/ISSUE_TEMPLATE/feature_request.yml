@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a scoped improvement to the course or reference implementation
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What learner or engineering problem is not adequately addressed?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Include scope, alternatives and expected maintenance cost.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and acceptance criteria
+      description: Define executable checks, sources and the maximum claim supported.
+    validations:
+      required: true

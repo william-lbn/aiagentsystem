@@ -1,0 +1,18 @@
+{
+  "approve_interrupt": {
+    "action_id": "action-approve",
+    "kind": "approval"
+  },
+  "approve_resume": {
+    "action_id": "action-approve",
+    "approved": true
+  },
+  "reject_interrupt": {
+    "action_id": "action-reject",
+    "kind": "approval"
+  },
+  "reject_resume": {
+    "action_id": "action-reject",
+    "approved": false
+  }
+}

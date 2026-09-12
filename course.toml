@@ -1,0 +1,50 @@
+[course]
+name = "AI Agent Systems Course"
+slug = "ai-agent-systems-course"
+version = "v1.0.0"
+release_date = "2026-09-11"
+lang = "zh-Hans"
+title = "AI Agent Systems"
+subtitle = "从模型、Context、Tool、Memory 到 Runtime、协议、可靠性、安全评测与研究前沿"
+book_tagline = "从模型、Runtime、协议到生产可靠性"
+author = "william-lbn and contributors"
+license = "MIT"
+
+[build]
+system_version = "1.1.1"
+canonical_publisher = "quarto"
+compatibility_publisher = "pandoc"
+quarto_version = "1.11.1"
+quarto_image = "ghcr.io/quarto-dev/quarto-full:1.11.1@sha256:fb4b3d369c7399f97dbfcc90a4edfdd09fc581f4cd654813ba84694248e65b13"
+source_date_epoch = 1789084800
+min_python = "3.11"
+max_python_exclusive = "3.14"
+pdf_min_pages = 380
+expected_chapters = 40
+expected_appendices = 6
+expected_core_labs = 80
+expected_chapter_examples = 40
+expected_support_examples = 29
+expected_upstream_labs = 10
+expected_source_locks = 100
+expected_diagrams = 80
+expected_slides = 90
+expected_site_pages = 127
+
+[fonts]
+main = "Noto Serif CJK SC"
+sans = "Noto Sans CJK SC"
+mono = "Noto Sans Mono CJK SC"
+
+[pdf]
+documentclass = "ctexbook"
+workbook_documentclass = "ctexbook"
+# Disable ctex's host-specific macOS/Windows font presets. The included LaTeX
+# styles set all CJK families explicitly to the locked Noto contract below.
+class_options = ["oneside", "openany", "fontset=none"]
+toc_depth = 1
+html_toc_depth = 3
+paper_size = "a4"
+margin = "2.4cm"
+book_style = "book/assets/latex/book-style.tex"
+workbook_style = "book/assets/latex/workbook-style.tex"

@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official StateGraph and SQLite checkpointer resume approve/reject paths in fresh OS processes with replay and side-effect observations",
+  "claim_ceiling": "Does not prove distributed database failover, arbitrary graph migration, or exactly-once external effects; node-prefix replay requires application idempotency.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "cross_process_sqlite_checkpoint",
+    "environment": "synthetic",
+    "execution_boundary": "two_fresh_os_processes",
+    "fault_injection": "deterministic_rejection_and_process_boundary",
+    "reproduction": "single_host",
+    "verifier": "checkpoint_file_process_ids_and_side_effect_counter"
+  },
+  "executed_at_utc": "2026-09-12T09:26:37.349291+00:00",
+  "exit_code": 0,
+  "experiment": "langgraph-durable-restart",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "f98b5a6863e4a5ca179a24fc2b84c30b4208169a9d50176586dc99763a1ef559",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

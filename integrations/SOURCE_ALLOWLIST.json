@@ -1,0 +1,6 @@
+{
+  "https://agent.invalid/a2a": {
+    "reason": "Reserved non-routable .invalid placeholder used only by the deterministic A2A conformance fixture; it is not an evidence source.",
+    "scope": "fixture-only"
+  }
+}

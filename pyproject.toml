@@ -1,0 +1,96 @@
+[project]
+name = "agentlab-course"
+version = "1.0.0"
+description = "AI Agent Systems: book, runtime, reproducible labs, integrations, and production cases."
+readme = "README.md"
+license = "MIT"
+authors = [
+  { name = "william-lbn and contributors" },
+]
+keywords = ["ai-agents", "agent-runtime", "mcp", "a2a", "durable-execution", "course"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Education",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "click==8.5.0",
+  "fastapi==0.141.1",
+  "pydantic==2.13.4",
+  "starlette==1.3.1",
+  "uvicorn==0.48.0",
+]
+
+[dependency-groups]
+test = [
+  # Retained for the pinned A2A SDK 1.1.2 evidence environment. Starlette's
+  # TestClient selects the separately pinned httpx2 backend below.
+  "httpx==0.28.1",
+  "httpx2==2.12.0",
+  "pytest==9.1.1",
+]
+publish = [
+  "pillow==12.3.0",
+  "python-pptx==1.0.2",
+]
+quality = [
+  "pip-audit==2.10.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.7",
+]
+dev = [
+  { include-group = "test" },
+  { include-group = "publish" },
+  { include-group = "quality" },
+]
+
+[tool.uv]
+package = false
+default-groups = ["test", "publish"]
+environments = ["sys_platform == 'linux'", "sys_platform == 'darwin'"]
+
+[project.urls]
+Homepage = "https://github.com/william-lbn/aiagentsystem"
+Documentation = "https://github.com/william-lbn/aiagentsystem#readme"
+Repository = "https://github.com/william-lbn/aiagentsystem.git"
+Issues = "https://github.com/william-lbn/aiagentsystem/issues"
+Changelog = "https://github.com/william-lbn/aiagentsystem/blob/main/CHANGELOG.md"
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+  ".agentlab",
+  ".build",
+  ".venv",
+  "book/build",
+  "dist",
+  "site",
+  "validation_logs",
+  "workbook/build",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.coverage.run]
+branch = true
+source = ["agentlab", "production.agentops_service"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true

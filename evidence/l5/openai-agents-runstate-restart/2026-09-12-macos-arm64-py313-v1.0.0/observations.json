@@ -1,0 +1,79 @@
+{
+  "approve_effects": [
+    {
+      "action_id": "action-approve",
+      "applied_by_pid": 16294
+    }
+  ],
+  "processes": {
+    "approve": {
+      "pause": {
+        "result": {
+          "effect_count": 0,
+          "interruptions": [
+            {
+              "arguments": "{\"action_id\":\"action-approve\"}",
+              "call_id": "call-approve-001",
+              "tool_name": "apply_effect"
+            }
+          ],
+          "phase": "pause",
+          "pid": 16290
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"effect_count\": 0, \"interruptions\": [{\"arguments\": \"{\\\"action_id\\\":\\\"action-approve\\\"}\", \"call_id\": \"call-approve-001\", \"tool_name\": \"apply_effect\"}], \"phase\": \"pause\", \"pid\": 16290}\n"
+      },
+      "resume": {
+        "result": {
+          "decision": "approve",
+          "effect_count": 1,
+          "final_output": "terminal:approve",
+          "phase": "resume",
+          "pid": 16294,
+          "remaining_interruptions": 0,
+          "restored_call_id": "call-approve-001",
+          "restored_tool_name": "apply_effect"
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"decision\": \"approve\", \"effect_count\": 1, \"final_output\": \"terminal:approve\", \"phase\": \"resume\", \"pid\": 16294, \"remaining_interruptions\": 0, \"restored_call_id\": \"call-approve-001\", \"restored_tool_name\": \"apply_effect\"}\n"
+      }
+    },
+    "reject": {
+      "pause": {
+        "result": {
+          "effect_count": 0,
+          "interruptions": [
+            {
+              "arguments": "{\"action_id\":\"action-reject\"}",
+              "call_id": "call-reject-001",
+              "tool_name": "apply_effect"
+            }
+          ],
+          "phase": "pause",
+          "pid": 16295
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"effect_count\": 0, \"interruptions\": [{\"arguments\": \"{\\\"action_id\\\":\\\"action-reject\\\"}\", \"call_id\": \"call-reject-001\", \"tool_name\": \"apply_effect\"}], \"phase\": \"pause\", \"pid\": 16295}\n"
+      },
+      "resume": {
+        "result": {
+          "decision": "reject",
+          "effect_count": 0,
+          "final_output": "terminal:reject",
+          "phase": "resume",
+          "pid": 16296,
+          "remaining_interruptions": 0,
+          "restored_call_id": "call-reject-001",
+          "restored_tool_name": "apply_effect"
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"decision\": \"reject\", \"effect_count\": 0, \"final_output\": \"terminal:reject\", \"phase\": \"resume\", \"pid\": 16296, \"remaining_interruptions\": 0, \"restored_call_id\": \"call-reject-001\", \"restored_tool_name\": \"apply_effect\"}\n"
+      }
+    }
+  },
+  "reject_effects": []
+}

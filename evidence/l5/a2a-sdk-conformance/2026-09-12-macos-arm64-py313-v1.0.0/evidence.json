@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official SDK client discovers an AgentCard and streams a JSON-RPC task lifecycle from an official server in a separate OS process, plus explicit rejection of legacy top-level card fields",
+  "claim_ceiling": "Proves Python-to-Python JSON-RPC over loopback only; it does not prove cross-language interoperability, HTTP+JSON/gRPC parity, remote authorization, task-store durability, or cancellation/subscription behavior.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "not_exercised",
+    "environment": "loopback_jsonrpc_deterministic_policy_agent",
+    "execution_boundary": "two_os_processes_over_loopback_jsonrpc",
+    "fault_injection": "deterministic_legacy_wire_shape",
+    "reproduction": "single_host",
+    "verifier": "server_process_effect_task_lifecycle_and_descriptor_assertions"
+  },
+  "executed_at_utc": "2026-09-12T09:29:08.873223+00:00",
+  "exit_code": 0,
+  "experiment": "a2a-sdk-conformance",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "785c19244bec965b54ca59149a4abd880b7afe5a2257426d5b82bb441ffe969d",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

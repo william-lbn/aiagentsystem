@@ -1,0 +1,14 @@
+{
+  "checkpoint_id": "24a582d3-d316-420b-818e-c01fe036a74f",
+  "input": {
+    "change_id": "chg-2026-0911-017",
+    "release": "agent-runtime-13.1",
+    "risk": "high"
+  },
+  "output": {
+    "applied_by_pid": 16336,
+    "change_id": "chg-2026-0911-017",
+    "release": "agent-runtime-13.1",
+    "status": "applied"
+  }
+}

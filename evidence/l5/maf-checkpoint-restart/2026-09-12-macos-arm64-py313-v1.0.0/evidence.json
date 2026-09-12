@@ -1,0 +1,23 @@
+{
+  "authority": "official_release",
+  "claim": "official WorkflowBuilder and FileCheckpointStorage resume a canonical graph after a hard process boundary and reject a changed graph signature",
+  "claim_ceiling": "Uses the core workflow package and local file storage on one host; it does not prove the meta-package integrations, distributed storage failover, graph migration, or exactly-once external APIs.",
+  "evidence_vector": {
+    "authority": "official_release",
+    "durability": "cross_process_file_checkpoint",
+    "environment": "synthetic_no_model",
+    "execution_boundary": "hard_exit_then_fresh_os_process",
+    "fault_injection": "process_loss_and_changed_graph_signature",
+    "reproduction": "single_host",
+    "verifier": "checkpoint_lineage_graph_hash_output_and_side_effect_counter"
+  },
+  "executed_at_utc": "2026-09-12T09:26:38.200924+00:00",
+  "exit_code": 0,
+  "experiment": "maf-checkpoint-restart",
+  "missing_artifacts": [],
+  "package_pins_match": true,
+  "schema_version": 2,
+  "source_script_sha256": "dd56bd020c288ab4827d3764ca56a636195ac6f5305cd0ad544c351c21aa3e90",
+  "status": "PASS_EXTERNAL_IMPLEMENTATION_EVIDENCE",
+  "validation_error": null
+}

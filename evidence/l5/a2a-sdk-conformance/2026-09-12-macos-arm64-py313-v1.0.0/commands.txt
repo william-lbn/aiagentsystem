@@ -1,0 +1,1 @@
+PYTHONPATH=.venv/lib/python3.13/site-packages /Users/williamlee/AI/AI-Agent-Systems-Course/.build/l5/a2a/.venv/bin/python /Users/williamlee/AI/AI-Agent-Systems-Course/experiments/l5/a2a_sdk_conformance.py /var/folders/tp/79x55kks71747q1knn8f_lx40000gn/T/agentlab-a2a-sdk-conformance-rs5io7cn

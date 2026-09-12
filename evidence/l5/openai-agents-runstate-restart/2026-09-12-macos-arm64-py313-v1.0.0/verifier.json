@@ -1,0 +1,14 @@
+{
+  "all_passed": true,
+  "assertions": {
+    "approved_effect_runs_once": true,
+    "call_identity_survives_serialization": true,
+    "pause_and_resume_are_distinct_processes": true,
+    "pause_has_exactly_one_interruption": true,
+    "rejected_effect_never_runs": true,
+    "resumed_runs_are_terminal": true,
+    "tool_identity_survives_serialization": true,
+    "unapproved_tool_never_runs": true
+  },
+  "experiment": "openai-agents-runstate-restart"
+}

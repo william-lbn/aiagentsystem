@@ -1,0 +1,103 @@
+name: external-agent-benchmarks
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Pinned external benchmark to execute
+        required: true
+        type: choice
+        options:
+          - swebench-lite-agent-smoke
+          - webarena-official-agent-smoke
+      model:
+        description: Exact provider model identifier to record in evidence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  swebench:
+    if: inputs.benchmark == 'swebench-lite-agent-smoke'
+    runs-on: [self-hosted, linux, x64, agent-benchmark]
+    timeout-minutes: 180
+    env:
+      MODEL_NAME: ${{ inputs.model }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Refuse an incomplete benchmark environment
+        run: python3 scripts/preflight_external_benchmarks.py --benchmark swebench-lite-agent-smoke
+      - name: Checkout the pinned official harness
+        run: |
+          git clone https://github.com/SWE-bench/SWE-bench.git .external/SWE-bench
+          git -C .external/SWE-bench checkout 02e7a74ffd0b707aab73d203fe87bdc7c76afc8e
+      - name: Install the harness lock
+        working-directory: .external/SWE-bench
+        run: uv sync
+      - name: Validate the evaluator with the gold patch
+        working-directory: .external/SWE-bench
+        run: uv run swebench eval lite --gold -i sympy__sympy-20590 --run-id "gold-${RUN_ID}" -j 1
+      - name: Run a real coding agent on the same issue
+        working-directory: .external/SWE-bench
+        run: uv run swebench infer lite -m "${MODEL_NAME}" -r "agent-${RUN_ID}" -w 1 -- --filter '^sympy__sympy-20590$'
+      - name: Evaluate the generated patch with repository tests
+        working-directory: .external/SWE-bench
+        run: uv run swebench eval lite -p "logs/inference/agent-${RUN_ID}/preds.json" -i sympy__sympy-20590 --run-id "eval-${RUN_ID}" -j 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: swebench-raw-${{ env.RUN_ID }}
+          if-no-files-found: error
+          path: |
+            .external/SWE-bench/logs/inference/agent-${{ env.RUN_ID }}/
+            .external/SWE-bench/logs/evaluation/gold-${{ env.RUN_ID }}/
+            .external/SWE-bench/logs/evaluation/eval-${{ env.RUN_ID }}/
+
+  webarena:
+    if: inputs.benchmark == 'webarena-official-agent-smoke'
+    runs-on: [self-hosted, linux, x64, agent-benchmark, webarena]
+    timeout-minutes: 120
+    env:
+      MODEL_NAME: ${{ inputs.model }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SHOPPING: ${{ vars.WEBARENA_SHOPPING }}
+      SHOPPING_ADMIN: ${{ vars.WEBARENA_SHOPPING_ADMIN }}
+      REDDIT: ${{ vars.WEBARENA_REDDIT }}
+      GITLAB: ${{ vars.WEBARENA_GITLAB }}
+      MAP: ${{ vars.WEBARENA_MAP }}
+      WIKIPEDIA: ${{ vars.WEBARENA_WIKIPEDIA }}
+      HOMEPAGE: ${{ vars.WEBARENA_HOMEPAGE }}
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Refuse an incomplete benchmark environment
+        run: python3 scripts/preflight_external_benchmarks.py --benchmark webarena-official-agent-smoke
+      - name: Checkout the pinned official harness
+        run: |
+          git clone https://github.com/web-arena-x/webarena.git .external/webarena
+          git -C .external/webarena checkout dce04686a56253aefba7b18a4fa0937cf1dc987b
+      - name: Install the official environment
+        working-directory: .external/webarena
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m playwright install chromium
+          .venv/bin/python -m pip install -e .
+      - name: Generate pinned task configs and login cookies
+        working-directory: .external/webarena
+        run: |
+          .venv/bin/python scripts/generate_test_data.py
+          mkdir -p .auth
+          .venv/bin/python browser_env/auto_login.py
+      - name: Run one real self-hosted browser task
+        working-directory: .external/webarena
+        run: .venv/bin/python run.py --instruction_path agent/prompts/jsons/p_cot_id_actree_2s.json --test_start_idx 0 --test_end_idx 1 --model "${MODEL_NAME}" --result_dir "evidence-output-${RUN_ID}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: webarena-raw-${{ env.RUN_ID }}
+          if-no-files-found: error
+          path: .external/webarena/evidence-output-${{ env.RUN_ID }}/

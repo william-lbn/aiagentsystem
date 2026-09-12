@@ -1,0 +1,146 @@
+{
+  "processes": {
+    "approve": {
+      "persist": {
+        "result": {
+          "events": [
+            {
+              "author": "procurement_planner",
+              "error_code": null,
+              "id": "event-approve-planned",
+              "invocation_id": "invocation-approve",
+              "state_delta": {
+                "risk_tier": "high",
+                "stage": "awaiting_approval"
+              },
+              "text": "Validated vendor and prepared an approval-bound purchase intent."
+            }
+          ],
+          "phase": "persist",
+          "pid": 16307,
+          "session_id": "session-approve",
+          "state": {
+            "pending_action_id": "purchase-approve",
+            "risk_tier": "high",
+            "stage": "awaiting_approval"
+          }
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"events\": [{\"author\": \"procurement_planner\", \"error_code\": null, \"id\": \"event-approve-planned\", \"invocation_id\": \"invocation-approve\", \"state_delta\": {\"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}, \"text\": \"Validated vendor and prepared an approval-bound purchase intent.\"}], \"phase\": \"persist\", \"pid\": 16307, \"session_id\": \"session-approve\", \"state\": {\"pending_action_id\": \"purchase-approve\", \"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}}\n"
+      },
+      "resume": {
+        "result": {
+          "artifact_exists": true,
+          "events": [
+            {
+              "author": "procurement_planner",
+              "error_code": null,
+              "id": "event-approve-planned",
+              "invocation_id": "invocation-approve",
+              "state_delta": {
+                "risk_tier": "high",
+                "stage": "awaiting_approval"
+              },
+              "text": "Validated vendor and prepared an approval-bound purchase intent."
+            },
+            {
+              "author": "approval_executor",
+              "error_code": null,
+              "id": "event-approve-completed",
+              "invocation_id": "invocation-approve-resume",
+              "state_delta": {
+                "decision": "approved",
+                "stage": "completed"
+              },
+              "text": "Approval identity matched; the purchase receipt was committed."
+            }
+          ],
+          "phase": "resume",
+          "pid": 16310,
+          "session_id": "session-approve",
+          "state": {
+            "decision": "approved",
+            "pending_action_id": "purchase-approve",
+            "risk_tier": "high",
+            "stage": "completed"
+          }
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"artifact_exists\": true, \"events\": [{\"author\": \"procurement_planner\", \"error_code\": null, \"id\": \"event-approve-planned\", \"invocation_id\": \"invocation-approve\", \"state_delta\": {\"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}, \"text\": \"Validated vendor and prepared an approval-bound purchase intent.\"}, {\"author\": \"approval_executor\", \"error_code\": null, \"id\": \"event-approve-completed\", \"invocation_id\": \"invocation-approve-resume\", \"state_delta\": {\"decision\": \"approved\", \"stage\": \"completed\"}, \"text\": \"Approval identity matched; the purchase receipt was committed.\"}], \"phase\": \"resume\", \"pid\": 16310, \"session_id\": \"session-approve\", \"state\": {\"decision\": \"approved\", \"pending_action_id\": \"purchase-approve\", \"risk_tier\": \"high\", \"stage\": \"completed\"}}\n"
+      }
+    },
+    "reject": {
+      "persist": {
+        "result": {
+          "events": [
+            {
+              "author": "procurement_planner",
+              "error_code": null,
+              "id": "event-reject-planned",
+              "invocation_id": "invocation-reject",
+              "state_delta": {
+                "risk_tier": "high",
+                "stage": "awaiting_approval"
+              },
+              "text": "Validated vendor and prepared an approval-bound purchase intent."
+            }
+          ],
+          "phase": "persist",
+          "pid": 16311,
+          "session_id": "session-reject",
+          "state": {
+            "pending_action_id": "purchase-reject",
+            "risk_tier": "high",
+            "stage": "awaiting_approval"
+          }
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"events\": [{\"author\": \"procurement_planner\", \"error_code\": null, \"id\": \"event-reject-planned\", \"invocation_id\": \"invocation-reject\", \"state_delta\": {\"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}, \"text\": \"Validated vendor and prepared an approval-bound purchase intent.\"}], \"phase\": \"persist\", \"pid\": 16311, \"session_id\": \"session-reject\", \"state\": {\"pending_action_id\": \"purchase-reject\", \"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}}\n"
+      },
+      "resume": {
+        "result": {
+          "artifact_exists": false,
+          "events": [
+            {
+              "author": "procurement_planner",
+              "error_code": null,
+              "id": "event-reject-planned",
+              "invocation_id": "invocation-reject",
+              "state_delta": {
+                "risk_tier": "high",
+                "stage": "awaiting_approval"
+              },
+              "text": "Validated vendor and prepared an approval-bound purchase intent."
+            },
+            {
+              "author": "approval_executor",
+              "error_code": "POLICY_DENIED",
+              "id": "event-reject-denied",
+              "invocation_id": "invocation-reject-resume",
+              "state_delta": {
+                "decision": "rejected",
+                "stage": "denied"
+              },
+              "text": "Policy denied the purchase; no receipt was committed."
+            }
+          ],
+          "phase": "resume",
+          "pid": 16312,
+          "session_id": "session-reject",
+          "state": {
+            "decision": "rejected",
+            "pending_action_id": "purchase-reject",
+            "risk_tier": "high",
+            "stage": "denied"
+          }
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"artifact_exists\": false, \"events\": [{\"author\": \"procurement_planner\", \"error_code\": null, \"id\": \"event-reject-planned\", \"invocation_id\": \"invocation-reject\", \"state_delta\": {\"risk_tier\": \"high\", \"stage\": \"awaiting_approval\"}, \"text\": \"Validated vendor and prepared an approval-bound purchase intent.\"}, {\"author\": \"approval_executor\", \"error_code\": \"POLICY_DENIED\", \"id\": \"event-reject-denied\", \"invocation_id\": \"invocation-reject-resume\", \"state_delta\": {\"decision\": \"rejected\", \"stage\": \"denied\"}, \"text\": \"Policy denied the purchase; no receipt was committed.\"}], \"phase\": \"resume\", \"pid\": 16312, \"session_id\": \"session-reject\", \"state\": {\"decision\": \"rejected\", \"pending_action_id\": \"purchase-reject\", \"risk_tier\": \"high\", \"stage\": \"denied\"}}\n"
+      }
+    }
+  }
+}

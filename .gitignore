@@ -1,0 +1,44 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.agentlab/
+*.pyc
+*.pyo
+.DS_Store
+.idea/
+.vscode/
+
+# Credentials and local provider configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated aggregate / publication artifacts
+book/zh/book.md
+book/build/
+book/assets/diagrams/*.png
+book/assets/diagrams/pdf/
+slides/*.pptx
+slides/*.pdf
+workbook/build/
+site/
+dist/
+validation_logs/
+.external/
+downloaded-manifests/
+cross-host-canonical-evidence.json
+
+# Runtime state
+production/agentops_service/data/*.db
+MANIFEST.md
+
+# Generated visual QA evidence
+qa/final_pdf_samples/
+qa/final_slides_samples/
+.build/

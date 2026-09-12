@@ -1,0 +1,28 @@
+{
+  "approve": {
+    "event_ids": [
+      "event-approve-planned",
+      "event-approve-completed"
+    ],
+    "session_id": "session-approve",
+    "state": {
+      "decision": "approved",
+      "pending_action_id": "purchase-approve",
+      "risk_tier": "high",
+      "stage": "completed"
+    }
+  },
+  "reject": {
+    "event_ids": [
+      "event-reject-planned",
+      "event-reject-denied"
+    ],
+    "session_id": "session-reject",
+    "state": {
+      "decision": "rejected",
+      "pending_action_id": "purchase-reject",
+      "risk_tier": "high",
+      "stage": "denied"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "approve_counter": {
+    "effects": [
+      {
+        "action_id": "action-approve",
+        "applied_by_pid": 16323
+      }
+    ],
+    "pre_interrupt_executions": 2
+  },
+  "note": "The node prefix executes again on resume; effects before interrupt therefore require idempotency.",
+  "processes": {
+    "approve": {
+      "pause": {
+        "result": {
+          "interrupted": true,
+          "payload": {
+            "action_id": "action-approve",
+            "kind": "approval"
+          },
+          "phase": "pause",
+          "pid": 16322
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"interrupted\": true, \"payload\": {\"action_id\": \"action-approve\", \"kind\": \"approval\"}, \"phase\": \"pause\", \"pid\": 16322}\n"
+      },
+      "resume": {
+        "result": {
+          "approved": true,
+          "outcome": "applied",
+          "phase": "resume",
+          "pid": 16323
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"approved\": true, \"outcome\": \"applied\", \"phase\": \"resume\", \"pid\": 16323}\n"
+      }
+    },
+    "reject": {
+      "pause": {
+        "result": {
+          "interrupted": true,
+          "payload": {
+            "action_id": "action-reject",
+            "kind": "approval"
+          },
+          "phase": "pause",
+          "pid": 16324
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"interrupted\": true, \"payload\": {\"action_id\": \"action-reject\", \"kind\": \"approval\"}, \"phase\": \"pause\", \"pid\": 16324}\n"
+      },
+      "resume": {
+        "result": {
+          "approved": false,
+          "outcome": "rejected",
+          "phase": "resume",
+          "pid": 16329
+        },
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "{\"approved\": false, \"outcome\": \"rejected\", \"phase\": \"resume\", \"pid\": 16329}\n"
+      }
+    }
+  },
+  "reject_counter": {
+    "effects": [],
+    "pre_interrupt_executions": 2
+  }
+}

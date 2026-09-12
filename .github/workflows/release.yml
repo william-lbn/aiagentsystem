@@ -1,0 +1,50 @@
+name: canonical-release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Read canonical build metadata
+        shell: bash
+        run: |
+          echo "BUILD_SYSTEM_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("course.toml","rb"))["build"]["system_version"])')" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(python3 -c 'import tomllib; print(tomllib.load(open("course.toml","rb"))["build"]["source_date_epoch"])')" >> "$GITHUB_ENV"
+      - name: Verify release tag matches course version
+        run: python3 scripts/check_release_tag.py "$GITHUB_REF_NAME"
+      - name: Build pinned publisher image
+        run: docker build -f Dockerfile.builder -t "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" .
+      - name: Capture builder supply-chain inventory
+        shell: bash
+        run: |
+          mkdir -p validation_logs
+          docker run --rm "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" dpkg-query -W '-f=${Package}\t${Version}\n' | sort > validation_logs/builder-os-packages.txt
+          docker inspect "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" > validation_logs/builder-image-inspect.json
+          sha256sum Dockerfile.builder builder.lock.json uv.lock course.toml > validation_logs/builder-inputs.sha256
+      - name: Canonical Quarto validation and release
+        run: docker run --rm -e SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python release-container-inner
+      - name: Audit release dependencies and emit CycloneDX SBOM
+        shell: bash
+        run: |
+          docker run --rm -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python bootstrap dependency-audit
+          cp validation_logs/python-sbom.cdx.json "dist/release/AI-Agent-Systems-Course-${GITHUB_REF_NAME}-PYTHON-SBOM.cdx.json"
+          sha256sum "dist/release/AI-Agent-Systems-Course-${GITHUB_REF_NAME}-PYTHON-SBOM.cdx.json" >> dist/release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-release
+          if-no-files-found: error
+          path: dist/release/*
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: dist/release/*
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag --title "AI Agent Systems $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md

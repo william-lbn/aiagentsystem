@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-09-11",
+  "policy": "A declared command or a successful preflight is not a benchmark result. EXECUTED requires raw trajectory, evaluator output, command, environment, and hashes.",
+  "benchmarks": {
+    "swebench-lite-agent-smoke": {
+      "kind": "coding_agent",
+      "harness_repository": "https://github.com/SWE-bench/SWE-bench.git",
+      "harness_commit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+      "dataset": "princeton-nlp/SWE-bench_Lite",
+      "split": "test",
+      "instance_ids": [
+        "sympy__sympy-20590"
+      ],
+      "agent": "the official SWE-bench infer command backed by mini-SWE-agent",
+      "model": "provided at execution time and recorded verbatim in evidence; no floating default",
+      "commands": {
+        "environment_sanity": "uv run swebench eval lite --gold -i sympy__sympy-20590 --run-id gold-${RUN_ID}",
+        "agent_inference": "uv run swebench infer lite -m ${MODEL_NAME} -r agent-${RUN_ID} -w 1 -- --filter '^sympy__sympy-20590$'",
+        "official_evaluation": "uv run swebench eval lite -p logs/inference/agent-${RUN_ID}/preds.json -i sympy__sympy-20590 --run-id eval-${RUN_ID} -j 1"
+      },
+      "required_evidence": [
+        "exact harness commit and dependency lock",
+        "model identifier and sampling configuration",
+        "generated patch and agent trajectory",
+        "gold-environment sanity result",
+        "official report.json, test_output.txt, run_instance.log, eval.sh and patch.diff",
+        "Docker server version and evaluated image identity",
+        "artifact SHA-256 manifest"
+      ],
+      "status": "NOT_EXECUTED_IN_THIS_RELEASE",
+      "claim_ceiling": "The repository contains an executable pinned contract only; it contains no SWE-bench score until the required evidence is committed."
+    },
+    "webarena-official-agent-smoke": {
+      "kind": "browser_agent",
+      "harness_repository": "https://github.com/web-arena-x/webarena.git",
+      "harness_commit": "dce04686a56253aefba7b18a4fa0937cf1dc987b",
+      "alternative_runner_repository": "https://github.com/ServiceNow/BrowserGym.git",
+      "alternative_runner_commit": "9e779f087de9a65668b6974d11f9ce9816026e96",
+      "task_selection": {
+        "test_start_idx": 0,
+        "test_end_idx": 1,
+        "count": 1
+      },
+      "agent": "the official WebArena reasoning-agent baseline",
+      "model": "provided at execution time and recorded verbatim in evidence; no floating default",
+      "command": "python run.py --instruction_path agent/prompts/jsons/p_cot_id_actree_2s.json --test_start_idx 0 --test_end_idx 1 --model ${MODEL_NAME} --result_dir evidence-output",
+      "required_environment": [
+        "SHOPPING",
+        "SHOPPING_ADMIN",
+        "REDDIT",
+        "GITLAB",
+        "MAP",
+        "WIKIPEDIA",
+        "HOMEPAGE"
+      ],
+      "required_evidence": [
+        "exact harness commit and dependency inventory",
+        "self-hosted site image identities and reset log",
+        "generated config and authenticated browser setup result",
+        "model identifier and sampling configuration",
+        "full action/observation trajectory and evaluator output",
+        "Playwright and Chromium versions",
+        "artifact SHA-256 manifest"
+      ],
+      "status": "NOT_EXECUTED_IN_THIS_RELEASE",
+      "claim_ceiling": "The repository contains an executable pinned contract only; it contains no WebArena success rate until a self-hosted site stack is reset and the required evidence is committed."
+    }
+  }
+}

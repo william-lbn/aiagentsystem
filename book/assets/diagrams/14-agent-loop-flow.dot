@@ -1,0 +1,21 @@
+digraph G {
+graph [rankdir=TB,bgcolor="transparent",pad="0.15",nodesep="0.28",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=16,color="#34495e",fillcolor="#f8fbfd"];
+edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
+s0 [label="Step 1  接收输入"];
+s1 [label="Step 2  最大步数与 token budget"];
+s2 [label="Step 3  空 action 立即失败"];
+s3 [label="Step 4  循环状态可 checkpoint"];
+s4 [label="Step 5  每轮都有 trace id"];
+s5 [label="Step 6  写入证据"];
+s6 [label="Step 7  验证结果"];
+s0->s1;
+s1->s2;
+s2->s3;
+s3->s4;
+s4->s5;
+s5->s6;
+fail [shape=diamond,label="故障/不确定?",fillcolor="#fdecea"];
+s5->fail [style=dashed];
+fail->s0 [label="retry only if safe",style=dashed,color="#b03a2e"];
+}

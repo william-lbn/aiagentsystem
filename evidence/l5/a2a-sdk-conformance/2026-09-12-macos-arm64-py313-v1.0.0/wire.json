@@ -1,0 +1,102 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "application/json"
+    ],
+    "defaultOutputModes": [
+      "application/json"
+    ],
+    "description": "Deterministic procurement policy review agent",
+    "name": "agentlab-procurement-risk",
+    "skills": [
+      {
+        "description": "Evaluate a purchase order against amount and vendor-risk policy",
+        "id": "procurement-risk-review",
+        "inputModes": [
+          "application/json"
+        ],
+        "name": "Procurement risk review",
+        "outputModes": [
+          "application/json"
+        ],
+        "tags": [
+          "procurement",
+          "risk",
+          "policy"
+        ]
+      }
+    ],
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://127.0.0.1:53398/a2a/jsonrpc"
+      }
+    ],
+    "version": "1.0.0"
+  },
+  "events": [
+    {
+      "task": {
+        "contextId": "procurement-context-017",
+        "history": [
+          {
+            "contextId": "procurement-context-017",
+            "messageId": "398267e3-922c-4200-8921-b16ee81aff7c",
+            "parts": [
+              {
+                "mediaType": "application/json",
+                "text": "{\"amount_cents\": 4500000, \"purchase_order_id\": \"PO-2026-0911-017\", \"vendor_risk_bps\": 2100}"
+              }
+            ],
+            "role": "ROLE_USER",
+            "taskId": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721"
+          }
+        ],
+        "id": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721",
+        "status": {
+          "state": "TASK_STATE_SUBMITTED"
+        }
+      }
+    },
+    {
+      "statusUpdate": {
+        "contextId": "procurement-context-017",
+        "status": {
+          "state": "TASK_STATE_WORKING",
+          "timestamp": "2026-09-12T09:29:08.605713Z"
+        },
+        "taskId": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721"
+      }
+    },
+    {
+      "artifactUpdate": {
+        "artifact": {
+          "artifactId": "risk-decision-v1",
+          "name": "procurement-risk-decision",
+          "parts": [
+            {
+              "text": "{\"approved\": true, \"policy\": {\"max_amount_cents\": 5000000, \"max_vendor_risk_bps\": 3500}, \"purchase_order_id\": \"PO-2026-0911-017\", \"reason_codes\": []}"
+            }
+          ]
+        },
+        "contextId": "procurement-context-017",
+        "lastChunk": true,
+        "taskId": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721"
+      }
+    },
+    {
+      "statusUpdate": {
+        "contextId": "procurement-context-017",
+        "status": {
+          "state": "TASK_STATE_COMPLETED",
+          "timestamp": "2026-09-12T09:29:08.605758Z"
+        },
+        "taskId": "8a8a1122-5933-4c8c-acf0-1be5f6bb0721"
+      }
+    }
+  ]
+}

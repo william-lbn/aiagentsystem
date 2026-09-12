@@ -1,0 +1,39 @@
+name: Evidence or benchmark contribution
+description: Propose externally verifiable runtime, protocol or benchmark evidence
+title: "[Evidence]: "
+labels: ["evidence", "needs-triage"]
+body:
+  - type: input
+    id: system
+    attributes:
+      label: Framework, protocol or benchmark
+    validations:
+      required: true
+  - type: textarea
+    id: pins
+    attributes:
+      label: Exact pins
+      description: Version, commit/digest, task IDs, model identifier and environment image.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Execution and failure boundary
+      description: Processes, hosts, transports, fault injection and side effects.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Raw artifacts and verifier
+      description: Describe trajectories, grader output, hashes, redaction and independent assertions.
+    validations:
+      required: true
+  - type: textarea
+    id: ceiling
+    attributes:
+      label: Claim ceiling
+      description: State explicitly what the evidence does not prove.
+    validations:
+      required: true

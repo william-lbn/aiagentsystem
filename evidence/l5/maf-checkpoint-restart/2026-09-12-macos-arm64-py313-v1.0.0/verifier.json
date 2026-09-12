@@ -1,0 +1,15 @@
+{
+  "all_passed": true,
+  "assertions": {
+    "business_effect_is_applied_once": true,
+    "canonical_topology_reaches_idle": true,
+    "changed_topology_is_rejected": true,
+    "checkpoint_identity_survives_restart": true,
+    "effect_runs_only_in_resume_process": true,
+    "file_checkpoint_artifacts_exist": true,
+    "graph_signature_survives_restart": true,
+    "persist_and_resume_are_distinct_processes": true,
+    "terminal_output_matches_effect": true
+  },
+  "experiment": "maf-checkpoint-restart"
+}

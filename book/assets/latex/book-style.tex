@@ -1,0 +1,79 @@
+% AI Agent Systems - print/PDF typography contract.
+\usepackage{etoolbox}
+\usepackage{fvextra}
+% This file contains presentation policy only. Content remains canonical Markdown.
+\usepackage{fancyhdr}
+\usepackage{needspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{ragged2e}
+
+\IfFontExistsTF{Noto Serif CJK SC}
+  {\setCJKmainfont{Noto Serif CJK SC}}
+  {\setCJKmainfont{NotoSerifCJKsc-Regular.otf}}
+\IfFontExistsTF{Noto Sans CJK SC}
+  {\setCJKsansfont{Noto Sans CJK SC}}
+  {\setCJKsansfont{NotoSansCJKsc-Regular.otf}}
+\IfFontExistsTF{Noto Sans Mono CJK SC}
+  {\setCJKmonofont{Noto Sans Mono CJK SC}}
+  {\setCJKmonofont{NotoSansMonoCJKsc-Regular.otf}}
+
+
+% Long code lines must never disappear beyond the page boundary.
+\RecustomVerbatimEnvironment{Highlighting}{Verbatim}{%
+  commandchars=\\\{\},breaklines=true,breakanywhere=true,fontsize=\small}
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{%
+  breaklines=true,breakanywhere=true,fontsize=\small}
+
+% Dense technical tables remain readable without forcing narrow one-character columns.
+\AtBeginEnvironment{longtable}{\small\renewcommand{\arraystretch}{1.12}}
+
+% Chinese technical-book typography: first-line indent, compact paragraph rhythm.
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+\linespread{1.13}
+\setlength{\emergencystretch}{2em}
+\raggedbottom
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+
+% Part titles already contain "第一篇/第二篇/..." in the canonical SUMMARY.
+% Suppress ctexbook's generated part label to avoid "第一部分 第一篇 ..." duplication.
+\ctexset{
+  part = {
+    name = {,},
+    number = {},
+    format = \centering\Huge\bfseries,
+    beforeskip = 0.16\textheight,
+    afterskip = 2.5em
+  },
+  chapter = {
+    format = \huge\bfseries,
+    beforeskip = 20pt,
+    afterskip = 24pt
+  },
+  section = {format = \Large\bfseries},
+  subsection = {format = \large\bfseries}
+}
+
+% Keep headings with enough following text; avoid orphaned headings at page bottoms.
+\pretocmd{\section}{\Needspace{5\baselineskip}}{}{}
+\pretocmd{\subsection}{\Needspace{4\baselineskip}}{}{}
+
+% Restrained running heads suitable for a technical book PDF.
+\setlength{\headheight}{15pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\nouppercase{\leftmark}}
+\fancyhead[R]{\small AI Agent Systems}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
