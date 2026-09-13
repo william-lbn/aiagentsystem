@@ -54,7 +54,12 @@ if pdf.exists():
     req("Page size:       595.28 x 841.89 pts (A4)" in info or "(A4)" in info, "PDF must be A4")
     epoch = int(CFG["source_date_epoch"])
     expected = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%a %b %d %H:%M:%S %Y UTC")
-    req(f"CreationDate:    {expected}" in info, f"CreationDate must derive from SOURCE_DATE_EPOCH ({expected})")
+    actual_creation = re.search(r"^CreationDate:\s+(.+)$", info, re.M)
+    actual_creation_text = actual_creation.group(1).strip() if actual_creation else "MISSING"
+    req(
+        actual_creation_text == expected,
+        f"CreationDate={actual_creation_text!r} must derive from SOURCE_DATE_EPOCH ({expected})",
+    )
 
     cp = subprocess.run(["pdftotext", "-layout", str(pdf), "-"], capture_output=True, check=True)
     text = cp.stdout.decode("utf-8", "replace")

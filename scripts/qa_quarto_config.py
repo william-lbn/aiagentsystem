@@ -50,7 +50,8 @@ req(str(cfg["quarto_version"]) not in book, "generated Quarto project must not d
 stamp = datetime.datetime.fromtimestamp(int(cfg["source_date_epoch"]), datetime.timezone.utc).strftime("D:%Y%m%d%H%M%SZ")
 for target in ("book", "workbook"):
     header = (base / target / "reproducible-pdf.tex").read_text(encoding="utf-8")
-    req(header.count(stamp) == 2, f"{target} PDF dates do not derive from SOURCE_DATE_EPOCH")
+    req("pdfcreationdate={" + stamp + "}" in header, f"{target} Hyperref date does not derive from SOURCE_DATE_EPOCH")
+    req("/CreationDate (" + stamp + ")" in header, f"{target} PDF Info date does not derive from SOURCE_DATE_EPOCH")
     req("pdf:trailerid" in header, f"{target} deterministic PDF trailer ID missing")
 if errors:
     print("QUARTO_CONFIG_QA_FAILED")

@@ -75,12 +75,15 @@ def write_pdf_repro_header(dst: Path, target: str):
         int(CFG["source_date_epoch"]), datetime.timezone.utc
     ).strftime("%Y%m%d%H%M%S")
     (dst / "reproducible-pdf.tex").write_text(
-        "\\AtBeginDocument{\\special{pdf:docinfo << /CreationDate (D:"
+        "\\AtBeginDocument{\\hypersetup{pdfcreationdate={D:"
+        + stamp
+        + "Z},pdfmoddate={D:"
+        + stamp
+        + "Z}}\\special{pdf:docinfo << /CreationDate (D:"
         + stamp
         + "Z) /ModDate (D:"
         + stamp
-        + "Z) >>}}\n"
-        + "\\AtBeginDocument{\\special{pdf:trailerid [ <"
+        + "Z) >>}\\special{pdf:trailerid [ <"
         + ident
         + "> <"
         + ident
