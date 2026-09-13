@@ -80,6 +80,15 @@ jobs:
         run: docker build --pull=false -f Dockerfile.builder -t "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" .
       - name: Validate all canonical publication surfaces
         run: docker run --rm -e SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python bootstrap validate-canonical manifest
+      - name: Return generated artifacts to runner ownership
+        if: always()
+        shell: bash
+        run: |
+          for path in book/build workbook/build site slides validation_logs; do
+            if [[ -e "$path" ]]; then
+              sudo chown -R "$(id -u):$(id -g)" "$path"
+            fi
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: canonical-publication

@@ -31,6 +31,8 @@ jobs:
           sha256sum Dockerfile.builder builder.lock.json uv.lock course.toml > validation_logs/builder-inputs.sha256
       - name: Canonical Quarto validation and release
         run: docker run --rm -e SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python release-container-inner
+      - name: Return generated artifacts to runner ownership
+        run: sudo chown -R "$(id -u):$(id -g)" book/build workbook/build site slides validation_logs dist
       - name: Audit release dependencies and emit CycloneDX SBOM
         shell: bash
         run: |
