@@ -2,7 +2,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import os
 import shutil
+import uuid
 from pathlib import Path
 from common import ROOT, course, build_cfg, fonts_cfg, pdf_cfg, summary_parts, chapter_paths, appendix_paths, lab_paths
 
@@ -15,6 +17,12 @@ BASE = ROOT / ".build/quarto"
 
 def q(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def stable_epub_identifier(target: str) -> str:
+    """Return a publication identifier that is stable across clean builds."""
+    name = f"{META['slug']}:{META['version']}:{target}"
+    return f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, name)}"
 
 
 def reset(path: Path):
@@ -31,6 +39,14 @@ def copy_sources(dst: Path):
     (dst / "scripts/filters").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "scripts/filters/pdf_diagrams.lua", dst / "scripts/filters/pdf_diagrams.lua")
     shutil.copy2(ROOT / "scripts/filters/book_structure.lua", dst / "scripts/filters/book_structure.lua")
+
+
+def normalize_project_mtimes(dst: Path):
+    """Remove checkout and generation time from Quarto's input surface."""
+    epoch = int(CFG["source_date_epoch"])
+    for path in sorted(dst.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        os.utime(path, (epoch, epoch), follow_symlinks=False)
+    os.utime(dst, (epoch, epoch), follow_symlinks=False)
 
 
 def annotate_appendix_titles(dst: Path):
@@ -113,6 +129,7 @@ def book_yaml() -> str:
     lines += [
         "format:",
         "  epub:",
+        f"    identifier: {q(stable_epub_identifier('book'))}",
         "    toc: true",
         "    toc-depth: 2",
         "    number-sections: true",
@@ -156,9 +173,11 @@ def site_yaml() -> str:
         "  output-dir: _output",
         "  render:",
         '    - "index.qmd"',
-        '    - "book/zh/chapters/*.md"',
-        '    - "book/zh/appendix-*.md"',
-        '    - "labs/core/*.md"',
+    ]
+    # Do not leave glob expansion order to the host filesystem: the order feeds
+    # Quarto's shared Sass dependency bundle and therefore its content hash.
+    lines += [f"    - {q(x)}" for x in ch + apps + labs]
+    lines += [
         "website:",
         f"  title: {q(META['title'])}",
         "  navbar:",
@@ -205,6 +224,7 @@ def workbook_yaml() -> str:
         + [
             "format:",
             "  epub:",
+            f"    identifier: {q(stable_epub_identifier('workbook'))}",
             "    toc: true",
             "    toc-depth: 1",
             "  pdf:",
@@ -259,6 +279,7 @@ def prepare(target: str) -> Path:
         raise ValueError(target)
     write_pdf_repro_header(dst, target)
     (dst / "_quarto.yml").write_text(y, encoding="utf-8")
+    normalize_project_mtimes(dst)
     return dst
 
 
