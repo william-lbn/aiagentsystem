@@ -414,10 +414,21 @@ def canonical(target: str):
     run(["quarto", "render"], cwd=project)
     qout = project / "_output"
     if target == "site":
+        expected_pages = int(CFG["expected_site_pages"])
+        rendered_pages = len(list(qout.rglob("*.html")))
+        if rendered_pages != expected_pages:
+            raise SystemExit(
+                f"QUARTO_SITE_OUTPUT_MISMATCH rendered={rendered_pages} expected={expected_pages}"
+            )
         out = ROOT / "site"
         clean_dir(out)
         shutil.copytree(qout, out, dirs_exist_ok=True)
         export_site_support(out)
+        published_pages = len(list(out.rglob("*.html")))
+        if published_pages != expected_pages:
+            raise SystemExit(
+                f"PUBLISHED_SITE_OUTPUT_MISMATCH published={published_pages} expected={expected_pages}"
+            )
     elif target == "book":
         out = ROOT / "book/build"
         clean_dir(out)

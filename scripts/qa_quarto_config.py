@@ -32,12 +32,23 @@ req("book/assets/latex/book-style.tex" in book, "book style include missing")
 req('      - "reproducible-pdf.tex"' in book, "book reproducible PDF header missing")
 req((base / "book/reproducible-pdf.tex").is_file(), "book reproducible PDF header was not generated")
 req("scripts/filters/book_structure.lua" in book, "book structure filter missing")
-req(site.count("book/zh/chapters/") == cfg["expected_chapters"], f"site chapter refs={site.count('book/zh/chapters/')}")
+site_lines = site.splitlines()
+site_chapter_refs = sum(line.startswith('      - "book/zh/chapters/') for line in site_lines)
+site_appendix_refs = sum(line.startswith('      - "book/zh/appendix-') for line in site_lines)
+site_lab_refs = sum(line.startswith('      - "labs/core/lab-') for line in site_lines)
+req(site_chapter_refs == cfg["expected_chapters"], f"site chapter refs={site_chapter_refs}")
 req(
-    site.count("book/zh/appendix-") == cfg["expected_appendices"],
-    f"site appendix refs={site.count('book/zh/appendix-')}",
+    site_appendix_refs == cfg["expected_appendices"],
+    f"site appendix refs={site_appendix_refs}",
 )
-req(site.count("labs/core/lab-") == cfg["expected_core_labs"], f"site lab refs={site.count('labs/core/lab-')}")
+req(site_lab_refs == cfg["expected_core_labs"], f"site lab refs={site_lab_refs}")
+for render_target in (
+    '    - "index.qmd"',
+    '    - "book/zh/chapters/*.md"',
+    '    - "book/zh/appendix-*.md"',
+    '    - "labs/core/*.md"',
+):
+    req(render_target in site, f"site explicit render target missing: {render_target.strip()}")
 req(wb.count("labs/core/lab-") == cfg["expected_core_labs"], f"workbook lab refs={wb.count('labs/core/lab-')}")
 req('    - "index.qmd"' in wb, "workbook index/home page missing")
 req((base / "workbook/index.qmd").is_file(), "workbook index/home page was not generated")
