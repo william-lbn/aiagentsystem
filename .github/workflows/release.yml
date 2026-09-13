@@ -38,7 +38,11 @@ jobs:
         run: |
           docker run --rm -e UV_PROJECT_ENVIRONMENT=/tmp/ai-agent-systems-venv -v "$PWD:/workspace" -w /workspace "ai-agent-systems-builder:${BUILD_SYSTEM_VERSION}" make PYTHON=/tmp/ai-agent-systems-venv/bin/python bootstrap dependency-audit
           cp validation_logs/python-sbom.cdx.json "dist/release/AI-Agent-Systems-Course-${GITHUB_REF_NAME}-PYTHON-SBOM.cdx.json"
-          sha256sum "dist/release/AI-Agent-Systems-Course-${GITHUB_REF_NAME}-PYTHON-SBOM.cdx.json" >> dist/release/SHA256SUMS.txt
+          (
+            cd dist/release
+            sha256sum "AI-Agent-Systems-Course-${GITHUB_REF_NAME}-PYTHON-SBOM.cdx.json" >> SHA256SUMS.txt
+          )
+          python3 scripts/verify_release_checksums.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: canonical-release

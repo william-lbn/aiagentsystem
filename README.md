@@ -107,7 +107,7 @@ make validate
 make release
 ```
 
-Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file mode、排序和压缩参数，并执行两次独立打包 SHA-256 比较与 SOURCE-CLEAN 污染检查。随后把 SOURCE-CLEAN 解包两次，以同一解释器、相互隔离的 `.venv`、空依赖 cache 和锁定的 runtime + `publish` 依赖重建 book/site/workbook/slides；每次 bootstrap 都先导入审计 lxml/Pillow/python-pptx/Pydantic Core。普通文件比较原始 SHA-256；EPUB 比较排序后的内部成员与 payload，并只把标准修改时间映射到 `SOURCE_DATE_EPOCH`；PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹。`quality` 工具不参与出版物重建，它们由 `make validate` 的 lint、coverage、dependency-audit 与索引门禁独立验证。
+Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file mode、排序和压缩参数，并执行两次独立打包 SHA-256 比较与 SOURCE-CLEAN 污染检查。外部 `SHA256SUMS.txt` 必须使用 basename 覆盖除自身外的每个发布资产；ALL bundle 内另带不可能自引用的 component manifest。随后把 SOURCE-CLEAN 解包两次，以同一解释器、相互隔离的 `.venv`、空依赖 cache 和锁定的 runtime + `publish` 依赖重建 book/site/workbook/slides；每次 bootstrap 都先导入审计 lxml/Pillow/python-pptx/Pydantic Core。普通文件比较原始 SHA-256；EPUB 比较排序后的内部成员与 payload，并只把标准修改时间映射到 `SOURCE_DATE_EPOCH`；PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹。`quality` 工具不参与出版物重建，它们由 `make validate` 的 lint、coverage、dependency-audit 与索引门禁独立验证。
 
 ## 6. Docker / CI 的定位
 

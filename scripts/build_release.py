@@ -13,8 +13,27 @@ CFG = build_cfg()
 VERSION = META["version"]
 EPOCH = int(CFG["source_date_epoch"])
 DT = time.gmtime(EPOCH)[:6]
-CACHE_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", ".agentlab", "dist", ".build"}
-RUNTIME_NAMES = {"agentops.db", ".DS_Store"}
+CACHE_PARTS = {
+    ".agentlab",
+    ".agents",
+    ".build",
+    ".codex",
+    ".git",
+    ".hypothesis",
+    ".idea",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pycache__",
+    "dist",
+    "htmlcov",
+    "node_modules",
+}
+RUNTIME_NAMES = {"agentops.db", ".coverage", ".DS_Store"}
 CURRENT_PUBLICATION_FILES = {
     f"book/build/ai-agent-systems-course-{VERSION}.epub",
     f"book/build/ai-agent-systems-course-{VERSION}.html",
@@ -28,7 +47,15 @@ CURRENT_PUBLICATION_FILES = {
 
 
 def skip_common(rel: Path) -> bool:
-    return any(part in CACHE_PARTS for part in rel.parts) or rel.name in RUNTIME_NAMES or rel.suffix in {".pyc", ".pyo"}
+    private_env = rel.name == ".env" or (rel.name.startswith(".env.") and rel.name != ".env.example")
+    coverage_shard = rel.name.startswith(".coverage.")
+    return (
+        any(part in CACHE_PARTS for part in rel.parts)
+        or rel.name in RUNTIME_NAMES
+        or private_env
+        or coverage_shard
+        or rel.suffix in {".pyc", ".pyo"}
+    )
 
 
 def skip_stale_publication(rel: Path) -> bool:
@@ -112,6 +139,10 @@ def sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def write_sums(path: Path, files: list[Path]):
+    path.write_text("".join(f"{sha(p)}  {p.name}\n" for p in files), encoding="utf-8")
+
+
 def build(dist: Path):
     dist.mkdir(parents=True, exist_ok=True)
     for p in dist.iterdir():
@@ -146,8 +177,6 @@ def build(dist: Path):
         ],
     )
     files = [full, source, book, code, slides, qa]
-    sums = "".join(f"{sha(p)}  {p.name}\n" for p in files)
-    (dist / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
     metadata = {
         "course_version": VERSION,
         "build_system": CFG["system_version"],
@@ -157,17 +186,26 @@ def build(dist: Path):
         "release_engine": os.environ.get("RELEASE_ENGINE", "pandoc-compatibility"),
         "artifacts": {p.name: sha(p) for p in files},
     }
-    (dist / "BUILD-METADATA.json").write_text(
+    metadata_path = dist / "BUILD-METADATA.json"
+    metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
+    # ALL-DELIVERABLES cannot contain a checksum of itself.  Give the bundle a
+    # component-only manifest, then create the external release manifest after
+    # the bundle is complete so every other downloadable asset is covered.
+    component_sums = dist / "COMPONENT-SHA256SUMS.txt"
+    write_sums(component_sums, [*files, metadata_path])
     allzip = dist / f"AI-Agent-Systems-Course-{VERSION}-ALL-DELIVERABLES.zip"
     with zipfile.ZipFile(allzip, "w") as z:
-        for p in sorted([*files, dist / "SHA256SUMS.txt", dist / "BUILD-METADATA.json"], key=lambda x: x.name):
+        for p in sorted([*files, metadata_path, component_sums], key=lambda x: x.name):
             add_file(z, p, p.name)
     if zipfile.ZipFile(allzip).testzip():
         raise SystemExit("ALL_DELIVERABLES_CRC_FAIL")
+    component_sums.unlink()
+    sums_path = dist / "SHA256SUMS.txt"
+    write_sums(sums_path, [*files, metadata_path, allzip])
     print("RELEASE_OK", allzip)
-    return files + [dist / "SHA256SUMS.txt", dist / "BUILD-METADATA.json", allzip]
+    return files + [sums_path, metadata_path, allzip]
 
 
 if __name__ == "__main__":

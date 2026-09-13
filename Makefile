@@ -12,7 +12,7 @@ SOURCE_DATE_EPOCH := $(shell awk -F '[[:space:]]*=[[:space:]]*' '/^source_date_e
         book site workbook slides build build-compat build-canonical examples labs test core-validate \
         lint coverage dependency-audit security-qa git-index-qa \
         book-qa pdf-structure-qa workbook-structure-qa slides-qa source-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa external-benchmark-preflight builder-lock-qa output-qa content-qa qa repo-qa validate validate-canonical \
-        manifest deterministic-packaging same-host-clean-rebuild reproducible release release-compat release-container release-container-inner source-clean clean
+        manifest release-checksums deterministic-packaging same-host-clean-rebuild reproducible release release-compat release-container release-container-inner source-clean clean
 
 bootstrap:
 	$(UV) sync --locked --all-groups --no-install-project
@@ -142,6 +142,9 @@ validate-canonical: bootstrap-check toolchain-canonical core-validate build-cano
 manifest:
 	$(PYTHON) scripts/generate_manifest.py
 
+release-checksums:
+	$(PYTHON) scripts/verify_release_checksums.py
+
 deterministic-packaging:
 	$(PYTHON) scripts/verify_deterministic_packaging.py
 
@@ -159,6 +162,7 @@ release: release-compat
 
 release-compat: validate manifest
 	RELEASE_ENGINE=pandoc-compatibility $(PYTHON) scripts/build_release.py
+	$(PYTHON) scripts/verify_release_checksums.py
 	$(PYTHON) scripts/verify_source_clean.py
 	$(PYTHON) scripts/verify_deterministic_packaging.py
 	$(PYTHON) scripts/verify_same_host_clean_rebuild.py
@@ -169,6 +173,7 @@ release-compat: validate manifest
 # never be executed or overwritten by the container.
 release-container-inner: bootstrap validate-canonical manifest
 	RELEASE_ENGINE=quarto-canonical $(PYTHON) scripts/build_release.py
+	$(PYTHON) scripts/verify_release_checksums.py
 	$(PYTHON) scripts/verify_source_clean.py
 	$(PYTHON) scripts/verify_deterministic_packaging.py
 	$(PYTHON) scripts/verify_same_host_clean_rebuild.py
