@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime
 import subprocess
 import sys
 from common import ROOT, build_cfg, pdf_cfg, summary_parts
@@ -28,6 +29,8 @@ req(f"    toc-depth: {int(pdf.get('toc_depth', 1))}" in book, "book PDF toc-dept
 req("    latex-auto-install: false" in book, "book must fail closed instead of mutating TeX during render")
 req('    babel-lang: "chinese"' in book, "book PDF must override Babel's invalid chinese-hans control name")
 req("book/assets/latex/book-style.tex" in book, "book style include missing")
+req('      - "reproducible-pdf.tex"' in book, "book reproducible PDF header missing")
+req((base / "book/reproducible-pdf.tex").is_file(), "book reproducible PDF header was not generated")
 req("scripts/filters/book_structure.lua" in book, "book structure filter missing")
 req(site.count("book/zh/chapters/") == cfg["expected_chapters"], f"site chapter refs={site.count('book/zh/chapters/')}")
 req(
@@ -39,9 +42,16 @@ req(wb.count("labs/core/lab-") == cfg["expected_core_labs"], f"workbook lab refs
 req('    - "index.qmd"' in wb, "workbook index/home page missing")
 req((base / "workbook/index.qmd").is_file(), "workbook index/home page was not generated")
 req("book/assets/latex/workbook-style.tex" in wb, "workbook style include missing")
+req('      - "reproducible-pdf.tex"' in wb, "workbook reproducible PDF header missing")
+req((base / "workbook/reproducible-pdf.tex").is_file(), "workbook reproducible PDF header was not generated")
 req("    latex-auto-install: false" in wb, "workbook must fail closed instead of mutating TeX during render")
 req('    babel-lang: "chinese"' in wb, "workbook PDF must override Babel's invalid chinese-hans control name")
 req(str(cfg["quarto_version"]) not in book, "generated Quarto project must not duplicate tool version")
+stamp = datetime.datetime.fromtimestamp(int(cfg["source_date_epoch"]), datetime.timezone.utc).strftime("D:%Y%m%d%H%M%SZ")
+for target in ("book", "workbook"):
+    header = (base / target / "reproducible-pdf.tex").read_text(encoding="utf-8")
+    req(header.count(stamp) == 2, f"{target} PDF dates do not derive from SOURCE_DATE_EPOCH")
+    req("pdf:trailerid" in header, f"{target} deterministic PDF trailer ID missing")
 if errors:
     print("QUARTO_CONFIG_QA_FAILED")
     [print("-", e) for e in errors]

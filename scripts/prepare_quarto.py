@@ -1,5 +1,7 @@
 from __future__ import annotations
 import argparse
+import datetime
+import hashlib
 import shutil
 from pathlib import Path
 from common import ROOT, course, build_cfg, fonts_cfg, pdf_cfg, summary_parts, chapter_paths, appendix_paths, lab_paths
@@ -48,6 +50,45 @@ def preface_text() -> str:
     return """# 导言：把 Agent 当作系统，而不是一次模型调用 {.unnumbered}\n\nAI Agent 的工程难点并不止于模型能否生成正确答案。当模型开始调用工具、修改环境、跨会话保持状态、与其他 Agent 协作并运行数分钟甚至数小时，问题会自然进入系统软件领域：状态在哪里、权限如何约束、副作用是否真的完成、进程崩溃怎样恢复、结果由谁验证、怎样评价一条长 trajectory、怎样证明优化没有破坏安全边界。\n\n本书沿着一条连续技术链展开：从模型输入输出接口开始，逐步加入 Context、Tool、RAG、Memory、MCP、Agent Runtime、Async、HITL、Sandbox、Checkpoint、Harness，再进入 Coding/Browser/Data/Research Agent、Workflow/Multi-Agent/A2A，最后落到 Evaluation、Security、Recovery、Performance、Production、Post-training 与 Self-improvement。每个核心机制都要求能在代码、实验、故障与主流开源实现中找到同构对象。\n"""
 
 
+def write_pdf_repro_header(dst: Path, target: str):
+    """Pin XeLaTeX dates and trailer identity for canonical PDFs."""
+    if target == "book":
+        inputs = [
+            ROOT / "book/zh/SUMMARY.md",
+            *chapter_paths(),
+            *appendix_paths(),
+            ROOT / PDF["book_style"],
+            ROOT / "scripts/filters/pdf_diagrams.lua",
+            ROOT / "scripts/filters/book_structure.lua",
+        ]
+    elif target == "workbook":
+        inputs = [*lab_paths(), ROOT / PDF["workbook_style"]]
+    else:
+        return
+    digest = hashlib.sha256()
+    digest.update(f"{META['slug']}:{META['version']}:{target}".encode())
+    for path in inputs:
+        digest.update(path.relative_to(ROOT).as_posix().encode())
+        digest.update(path.read_bytes())
+    ident = digest.hexdigest()[:32]
+    stamp = datetime.datetime.fromtimestamp(
+        int(CFG["source_date_epoch"]), datetime.timezone.utc
+    ).strftime("%Y%m%d%H%M%S")
+    (dst / "reproducible-pdf.tex").write_text(
+        "\\AtBeginDocument{\\special{pdf:docinfo << /CreationDate (D:"
+        + stamp
+        + "Z) /ModDate (D:"
+        + stamp
+        + "Z) >>}}\n"
+        + "\\AtBeginDocument{\\special{pdf:trailerid [ <"
+        + ident
+        + "> <"
+        + ident
+        + "> ]}}\n",
+        encoding="utf-8",
+    )
+
+
 def book_yaml() -> str:
     lines = [
         "project:",
@@ -91,6 +132,7 @@ def book_yaml() -> str:
         f"    monofont: {q(FONTS.get('mono', 'Noto Sans Mono CJK SC'))}",
         "    include-in-header:",
         f"      - {q(PDF.get('book_style', 'book/assets/latex/book-style.tex'))}",
+        '      - "reproducible-pdf.tex"',
         "filters:",
         "  - scripts/filters/book_structure.lua",
         "  - scripts/filters/pdf_diagrams.lua",
@@ -176,6 +218,7 @@ def workbook_yaml() -> str:
         f"    monofont: {q(FONTS.get('mono', 'Noto Sans Mono CJK SC'))}",
         "    include-in-header:",
         f"      - {q(PDF.get('workbook_style', 'book/assets/latex/workbook-style.tex'))}",
+        '      - "reproducible-pdf.tex"',
         f"lang: {q(META['lang'])}",
         "execute:",
         "  enabled: false",
@@ -206,6 +249,7 @@ def prepare(target: str) -> Path:
         )
     else:
         raise ValueError(target)
+    write_pdf_repro_header(dst, target)
     (dst / "_quarto.yml").write_text(y, encoding="utf-8")
     return dst
 

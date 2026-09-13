@@ -81,7 +81,7 @@ Build System 1.1.2 不检查某个内容版本字符串。QA 检查的是长期�
 
 ## 8. Reproducible release
 
-`course.toml` 固定 `SOURCE_DATE_EPOCH`。Release ZIP 固定 entry timestamp、Unix file mode、路径排序与 compression level。`scripts/verify_reproducible_release.py` 在两个隔离临时目录中重复生成 release 并比较 SHA-256；`verify_source_clean.py` 确保 source-only 包不泄漏生成产物。
+`course.toml` 固定 `SOURCE_DATE_EPOCH`。Quarto 临时项目据此生成不进入源码树的 `reproducible-pdf.tex`：通过 xdvipdfmx `pdf:docinfo` 固定 `CreationDate`/`ModDate`，并以 canonical 输入摘要固定 trailer ID。Release ZIP 固定 entry timestamp、Unix file mode、路径排序与 compression level。`scripts/verify_reproducible_release.py` 在两个隔离临时目录中重复生成 release 并比较 SHA-256；`verify_source_clean.py` 确保 source-only 包不泄漏生成产物。
 
 `verify_same_host_clean_rebuild.py` 还会把 SOURCE-CLEAN 独立解包两次，以调用验证器的同一 Python 和两个隔离 uv cache 冷启动；网络 bootstrap 最多进行三次有界重试，同一 cache 仅复用已校验的局部下载，包身份与 hash 仍由 `uv.lock` 决定。lxml、Pillow、python-pptx 与 Pydantic Core 必须先通过原生导入审计，随后 book/site/workbook/slides 的发布表面逐文件比对。它证明的是**同主机、同工具链的干净重建等价**。真正跨时间的 canonical Quarto bit-for-bit reproducibility 仍依赖完整 builder environment；仓库提供 digest-pinned Quarto base image 与 `Dockerfile.builder` 作为 CI hardening 路径，但不把本地 Docker 可用性当作内容正确性的替代物。
 
