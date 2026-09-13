@@ -10,7 +10,18 @@ function Image(img)
     local src = img.src
     if src:match("assets/diagrams/[^/]+%.svg$") then
       local pdf = src:gsub("assets/diagrams/([^/]+)%.svg$", "assets/diagrams/pdf/%1.pdf")
-      img.src = "book/" .. pdf
+      -- A Quarto Book invokes Pandoc with chapter paths already rebased to the
+      -- project root (for example
+      -- ``book/zh/chapters/../../assets/...``).  The compatibility publisher
+      -- feeds the assembled ``book/zh/book.md`` instead, where the same image
+      -- is ``assets/...`` and still needs the repository-level ``book/``
+      -- prefix.  Prefix only that second form; doing it unconditionally creates
+      -- the invalid Quarto path ``book/book/...``.
+      if src:match("^book/") then
+        img.src = pdf
+      else
+        img.src = "book/" .. pdf
+      end
     end
   end
   return img

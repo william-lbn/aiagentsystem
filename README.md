@@ -7,11 +7,11 @@
 
 **《AI Agent Systems：从模型、Runtime、协议到生产可靠性》**是一套面向工程师、研究者和高校课程的中文开源 Agent Systems 教材。课程从系统问题出发，将模型接口、Context、Tool、RAG/Memory、MCP/A2A、Runtime/Harness、Coding/Browser/Data/Research Agent、Multi-Agent、Evaluation、Security、Durable Execution、Recovery、Production、Post-training 与 Self-improvement 串成连续学习路径。
 
-当前公开基线是 **内容版本 `v1.0.0` + Build System `1.1.1`**。知识与协议观察截止日期为 **2026-09-11（Asia/Shanghai）**。这是教材、实验与参考实现 monorepo，不是面向 PyPI 发布的通用 Agent SDK；`pyproject.toml` 用于锁定仓库运行环境。
+当前公开基线是 **内容版本 `v1.0.0` + Build System `1.1.2`**。知识与协议观察截止日期为 **2026-09-11（Asia/Shanghai）**。这是教材、实验与参考实现 monorepo，不是面向 PyPI 发布的通用 Agent SDK；`pyproject.toml` 用于锁定仓库运行环境。
 
 项目坚持区分本地 deterministic fixture、官方 SDK 实跑、真实 provider、真实 benchmark 与生产环境。没有外部证据的部分会明确标记为 `DEFINED` 或 `NOT_EXECUTED`，不会生成替代分数。
 
-## 1. Build System 1.1.1 原则
+## 1. Build System 1.1.2 原则
 
 本仓库采用 **Single Source, Multiple Artifacts**：
 
@@ -31,7 +31,7 @@ Canonical publisher 是 **Quarto 1.11.1**；开发机没有 Quarto 时，可使�
 
 ### PDF / Workbook 出版规范
 
-Build System 1.1.1 使用 `ctexbook` 书籍语义而不是 `article`：独立书名页、紧凑总目录、7 个篇章分隔页、40 个章节强制章首新页、附录 A–F 原生编号；PDF 总目录只到“篇/章/附录”，HTML/Website 保留更深的局部导航。代码块通过 `fvextra` 自动折行，长行不会越过纸张边界；80 个 Lab 的 A/B 标题带稳定 ID 与“正常路径/故障注入”后缀，Workbook 目录不会再出现同名实验。
+Build System 1.1.2 使用 `ctexbook` 书籍语义而不是 `article`：独立书名页、紧凑总目录、7 个篇章分隔页、40 个章节强制章首新页、附录 A–F 原生编号；PDF 总目录只到“篇/章/附录”，HTML/Website 保留更深的局部导航。代码块通过 `fvextra` 自动折行，长行不会越过纸张边界；80 个 Lab 的 A/B 标题带稳定 ID 与“正常路径/故障注入”后缀，Workbook 目录不会再出现同名实验。
 
 ## 2. 当前已验证规模
 
@@ -117,7 +117,7 @@ Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file m
 
 ## 7. 长期演进规则
 
-后续版本应遵循 Semantic Versioning，从 canonical sources 修改并执行 `make validate`。不要从 PDF、PPTX、Website 或 Release ZIP 反向修改内容；不要新增第二套章节列表、版本常量或 Markdown parser。如果出版系统本身没有新的硬性需求，应保持 Build System 1.1.1 的出版契约冻结。
+后续版本应遵循 Semantic Versioning，从 canonical sources 修改并执行 `make validate`。不要从 PDF、PPTX、Website 或 Release ZIP 反向修改内容；不要新增第二套章节列表、版本常量或 Markdown parser。如果出版系统本身没有新的硬性需求，应保持 Build System 1.1.2 的出版契约冻结。
 
 ## 8. 开源协作与安全
 

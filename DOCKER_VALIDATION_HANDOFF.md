@@ -1,4 +1,4 @@
-# Canonical Docker / Quarto Validation Handoff — Build System 1.1.1
+# Canonical Docker / Quarto Validation Handoff — Build System 1.1.2
 
 Docker is **not** required to use or extend this baseline. This document is the optional follow-on gate for teams that want a canonical OCI build environment and provenance evidence.
 
@@ -24,4 +24,4 @@ second isolated canonical build SHA comparison
 CI provenance/attestation if available
 ```
 
-If the final self-built builder image is published, record its **final image digest**, not only the upstream Quarto base digest. This closes the remaining environment-level reproducibility gap without changing the Build System 1.1.1 source architecture.
+If the final self-built builder image is published, record its **final image digest**, not only the upstream Quarto base digest. This closes the remaining environment-level reproducibility gap without changing the Build System 1.1.2 source architecture.

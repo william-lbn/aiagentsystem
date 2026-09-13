@@ -11,7 +11,7 @@ author = "william-lbn and contributors"
 license = "MIT"
 
 [build]
-system_version = "1.1.1"
+system_version = "1.1.2"
 canonical_publisher = "quarto"
 compatibility_publisher = "pandoc"
 quarto_version = "1.11.1"

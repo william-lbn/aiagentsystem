@@ -7,10 +7,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m pip install --no-cache-dir uv==0.10.0 \
  && tlmgr update --self \
- && tlmgr install ctex fancyhdr fvextra needspace \
+ && tlmgr install ctex fancyhdr fvextra needspace enumitem ragged2e caption \
  && test -n "$(kpsewhich ctexbook.cls)" \
  && test -n "$(kpsewhich fancyhdr.sty)" \
  && test -n "$(kpsewhich fvextra.sty)" \
- && test -n "$(kpsewhich needspace.sty)"
+ && test -n "$(kpsewhich needspace.sty)" \
+ && test -n "$(kpsewhich enumitem.sty)" \
+ && test -n "$(kpsewhich ragged2e.sty)" \
+ && test -n "$(kpsewhich caption.sty)"
 WORKDIR /workspace
 CMD ["make","validate-canonical"]

@@ -1,4 +1,4 @@
-# Experiment Status — v1.0.0 / Build System 1.1.1
+# Experiment Status — v1.0.0 / Build System 1.1.2
 
 本文件只记录**已经有本地执行证据**的状态，并把“本地确定性 fixture”“系统检测/约束/恢复”“真实上游框架互操作”分开。`PASS` 不再被统一解释为“生产故障已经恢复”。
 

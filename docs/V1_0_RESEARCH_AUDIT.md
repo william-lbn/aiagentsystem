@@ -2,7 +2,7 @@
 
 ## Scope
 
-v1.0 freezes Build System 1.1.1 and the public knowledge baseline. The evidence set is recorded in `integrations/SOURCE_LOCK.json`; reproducibility pins remain distinct from latest-observed ecosystem versions.
+v1.0 freezes Build System 1.1.2 and the public knowledge baseline. The evidence set is recorded in `integrations/SOURCE_LOCK.json`; reproducibility pins remain distinct from latest-observed ecosystem versions.
 
 ## Evidence policy
 

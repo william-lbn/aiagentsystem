@@ -4,7 +4,7 @@
 
 **PASS as the next source baseline, with explicit evidence boundaries.**
 
-The first public baseline repairs the hardest defects at the state-machine, test and evidence layers rather than hiding them through editorial changes. Build System 1.1.1 remains independently versioned; public content follows Semantic Versioning.
+The first public baseline repairs the hardest defects at the state-machine, test and evidence layers rather than hiding them through editorial changes. Build System 1.1.2 remains independently versioned; public content follows Semantic Versioning.
 
 ## Why this baseline is stronger
 

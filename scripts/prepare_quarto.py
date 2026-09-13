@@ -82,6 +82,7 @@ def book_yaml() -> str:
         f"    toc-depth: {int(PDF.get('toc_depth', 1))}",
         "    number-sections: true",
         "    pdf-engine: xelatex",
+        "    latex-auto-install: false",
         f"    papersize: {q(PDF.get('paper_size', 'a4'))}",
         f"    geometry: {q('margin=' + PDF.get('margin', '2.4cm'))}",
         f"    mainfont: {q(FONTS.get('main', 'Noto Serif CJK SC'))}",
@@ -163,6 +164,7 @@ def workbook_yaml() -> str:
     lines += [f"      - {q(x)}" for x in PDF.get("class_options", ["oneside", "openany"])]
     lines += [
         "    pdf-engine: xelatex",
+        "    latex-auto-install: false",
         "    toc: true",
         "    toc-depth: 1",
         f"    papersize: {q(PDF.get('paper_size', 'a4'))}",

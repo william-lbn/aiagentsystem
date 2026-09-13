@@ -2,7 +2,7 @@
 
 ## Objective
 
-Establish the public v1.0 textbook without changing Build System 1.1.1. The target is a systems textbook that explains AI Agents through theory, executable mechanisms, failure semantics, open-source implementations, experiments, production design, research evidence and industry consequences.
+Establish the public v1.0 textbook on Build System 1.1.2. The target is a systems textbook that explains AI Agents through theory, executable mechanisms, failure semantics, open-source implementations, experiments, production design, research evidence and industry consequences.
 
 ## Chapter-level invariants
 

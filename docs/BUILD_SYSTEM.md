@@ -1,6 +1,6 @@
-# Build System 1.1.1 — Quarto/Pandoc AST 长期出版基线
+# Build System 1.1.2 — Quarto/Pandoc AST 长期出版基线
 
-Build System 1.1.1 的目标是把出版系统冻结成一个可长期维护的 Docs-as-Code / Course-as-Code 基线：**一份 canonical source tree，通过标准 AST publisher 生成书籍、网站、实验手册和发布包。**
+Build System 1.1.2 的目标是把出版系统冻结成一个可长期维护的 Docs-as-Code / Course-as-Code 基线：**一份 canonical source tree，通过标准 AST publisher 生成书籍、网站、实验手册和发布包。**
 
 ## 1. Canonical sources
 
@@ -77,7 +77,7 @@ PDF/Workbook 明确使用 `ctexbook`，Pandoc H1 以 chapter 语义处理。主�
 
 ## 7. QA 不变量
 
-Build System 1.1.1 不检查某个内容版本字符串。QA 检查的是长期不变量：章节/附录/Lab 数量、SUMMARY 顺序、本地链接、DOT→SVG 可重建、Quarto generated config、PDF/EPUB/HTML 结构、站内链接、PPTX 页数、语义证据块、source locks 和 repository contract。构建/QA 脚本不得硬编码 release-specific literal。
+Build System 1.1.2 不检查某个内容版本字符串。QA 检查的是长期不变量：章节/附录/Lab 数量、SUMMARY 顺序、本地链接、DOT→SVG 可重建、Quarto generated config、PDF/EPUB/HTML 结构、站内链接、PPTX 页数、语义证据块、source locks 和 repository contract。构建/QA 脚本不得硬编码 release-specific literal。
 
 ## 8. Reproducible release
 
@@ -85,8 +85,8 @@ Build System 1.1.1 不检查某个内容版本字符串。QA 检查的是长期�
 
 `verify_same_host_clean_rebuild.py` 还会把 SOURCE-CLEAN 独立解包两次，以调用验证器的同一 Python 和两个隔离 uv cache 冷启动；网络 bootstrap 最多进行三次有界重试，同一 cache 仅复用已校验的局部下载，包身份与 hash 仍由 `uv.lock` 决定。lxml、Pillow、python-pptx 与 Pydantic Core 必须先通过原生导入审计，随后 book/site/workbook/slides 的发布表面逐文件比对。它证明的是**同主机、同工具链的干净重建等价**。真正跨时间的 canonical Quarto bit-for-bit reproducibility 仍依赖完整 builder environment；仓库提供 digest-pinned Quarto base image 与 `Dockerfile.builder` 作为 CI hardening 路径，但不把本地 Docker 可用性当作内容正确性的替代物。
 
-Canonical 预检调用 `quarto pandoc --version`，检查 Quarto 随发行版内置、且被 `quarto render` 实际调用的 Pandoc；宿主系统里同名的旧 Pandoc 不属于 canonical publisher。镜像显式安装 `ctex`、`fancyhdr`、`fvextra` 与 `needspace`，并在 build layer 用 `kpsewhich` 验证书籍样式的直接依赖。Quarto base digest 与 Python lock 已固定，但 APT/CTAN 仍是构建时解析的仓库，因此不能宣称跨时间 bit-hermetic；tag release 必须保存实际 `dpkg` inventory、TeX Live package revision inventory、最终 image inspect 与工具链版本。
+Canonical 预检调用 `quarto pandoc --version`，检查 Quarto 随发行版内置、且被 `quarto render` 实际调用的 Pandoc；宿主系统里同名的旧 Pandoc 不属于 canonical publisher。镜像显式安装 `ctex`、`fancyhdr`、`fvextra`、`needspace`、`enumitem`、`ragged2e` 与 `caption`，并在 build layer 用 `kpsewhich` 验证对应文件；Quarto PDF 的 `latex-auto-install` 被关闭，渲染期缺包会直接失败，不能静默修改工具链。Quarto base digest 与 Python lock 已固定，但 APT/CTAN 仍是构建时解析的仓库，因此不能宣称跨时间 bit-hermetic；tag release 必须保存实际 `dpkg` inventory、TeX Live package revision inventory、最终 image inspect 与工具链版本。
 
 ## 9. 冻结规则
 
-Build System 1.1.1 发布后，正常内容迭代只允许更新 canonical content/code/labs/source locks 和必要的依赖锁。除非出现明确的出版能力、安全或可复现性缺口，不再新增自研 Markdown parser、不再复制章节结构、不再把版本常量写进 QA。
+Build System 1.1.2 发布后，正常内容迭代只允许更新 canonical content/code/labs/source locks 和必要的依赖锁。除非出现明确的出版能力、安全或可复现性缺口，不再新增自研 Markdown parser、不再复制章节结构、不再把版本常量写进 QA。

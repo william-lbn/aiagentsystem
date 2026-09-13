@@ -1,9 +1,9 @@
-# Validation Report — v1.0.0 / Build System 1.1.1
+# Validation Report — v1.0.0 / Build System 1.1.2
 
 ## Scope
 
 - Content version: **v1.0.0**
-- Build System: **1.1.1**
+- Build System: **1.1.2**
 - Local publisher actually executed: **Pandoc compatibility path**
 - Canonical Quarto/Docker path: configured and source-QA checked; local `linux/arm64` daemon verified, but fixed GHCR base pull failed with EOF/no response, so **not executed in this evidence set**
 - External upstream/provider/browser/GPU/cloud experiments: **not promoted without execution evidence**

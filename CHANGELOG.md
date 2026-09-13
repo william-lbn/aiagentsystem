@@ -14,11 +14,12 @@ All notable public changes are documented here. The project follows [Semantic Ve
 
 ### Changed
 
-- Established `v1.0.0` as the first public Semantic Versioning baseline; Build System remains independently versioned at `1.1.1`.
+- Established `v1.0.0` as the first public Semantic Versioning baseline; Build System remains independently versioned at `1.1.2`.
 - Hardened HITL action identity, unknown-outcome reconciliation, checkpoint CAS/durability, journal integrity and tool failure semantics.
 - Aligned MCP 2026-07-28 and A2A 1.0 teaching contracts with their protocol structures while separating fixtures from official SDK evidence.
 - Made SOURCE_LOCK coverage closed-world for chapter and appendix URLs and attached explicit claim ceilings to external evidence.
 - Centralized repeated methodology so the 462-page book carries higher information density without expanding the 40-chapter scope.
+- Made canonical PDF rendering fail closed: all observed TeX dependencies are declared in the builder lock, Quarto package auto-installation is disabled, and diagram paths are valid in both per-chapter Quarto and assembled-book Pandoc contexts.
 
 ### Verified
 

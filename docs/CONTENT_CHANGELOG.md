@@ -2,7 +2,7 @@
 
 ## v1.0.0 — 2026-09-11
 
-- 建立 40 章、6 附录、80 Core Labs 的首个公开语义化版本；Build System 独立保持 `1.1.1`。
+- 建立 40 章、6 附录、80 Core Labs 的首个公开语义化版本；Build System 独立版本为 `1.1.2`。
 - 将核心概念从统一模板改写为主题专属定义、系统责任、失败边界、形式模型、指标和可证伪工程假设。
 - 研究截止日统一为 2026-09-11；`integrations/SOURCE_LOCK.json` 区分 reproducibility pin、latest observed 与 evidence source。
 - 修复 HITL、Unknown Outcome、Tool Outcome、Checkpoint、Journal 和 Production case 的正确性边界。
