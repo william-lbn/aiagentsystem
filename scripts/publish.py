@@ -242,6 +242,11 @@ def export_site_support(out: Path):
     """Publish only the public, secret-scrubbed evidence referenced by chapters."""
     shutil.copytree(ROOT / "evidence/l5", out / "evidence/l5", dirs_exist_ok=True)
     shutil.copytree(ROOT / "evidence/benchmarks", out / "evidence/benchmarks", dirs_exist_ok=True)
+    (out / "docs").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        ROOT / "docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md",
+        out / "docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md",
+    )
     (out / "experiments/benchmarks").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "experiments/benchmarks/catalog.json", out / "experiments/benchmarks/catalog.json")
     (out / "workflows").mkdir(parents=True, exist_ok=True)
@@ -249,19 +254,39 @@ def export_site_support(out: Path):
         ROOT / ".github/workflows/external-agent-benchmarks.yml", out / "workflows/external-agent-benchmarks.yml"
     )
 
-    # Quarto renders from a prepared tree and therefore does not pass through
-    # rewrite_site_links(). Normalize the same repository-relative targets in
-    # its final chapter HTML before output QA checks the self-contained site.
-    replacements = {
-        "../../../evidence/": "../evidence/",
-        "../../../experiments/": "../experiments/",
-        "../../../.github/workflows/": "../workflows/",
-    }
-    for html in (out / "chapters").glob("*.html"):
+    # Compatibility output is flat while Quarto preserves source directories.
+    # Resolve the small allowlisted set of repository references against each
+    # final HTML file so both layouts remain self-contained release artifacts.
+    attr = re.compile(r'(?P<head>\b(?:href|src)=["\'])(?P<ref>[^"\']+)(?P<tail>["\'])')
+
+    def public_ref(ref: str, html: Path) -> str:
+        if ref.startswith(("http://", "https://", "mailto:", "#", "data:", "javascript:", "//")):
+            return ref
+        match = re.fullmatch(r"([^?#]*)(.*)", ref)
+        if not match:
+            return ref
+        raw_path, suffix = match.groups()
+        normalized = raw_path
+        while normalized.startswith("../"):
+            normalized = normalized[3:]
+        normalized = normalized.removeprefix("./")
+        if normalized.startswith(".github/workflows/"):
+            published = Path("workflows") / normalized.removeprefix(".github/workflows/")
+        elif normalized.startswith(("docs/", "evidence/", "experiments/")):
+            published = Path(normalized)
+        else:
+            return ref
+        relative = os.path.relpath(out / published, html.parent).replace(os.sep, "/")
+        return relative + suffix
+
+    for html in out.rglob("*.html"):
         source = html.read_text(encoding="utf-8")
-        rendered = source
-        for old, new in replacements.items():
-            rendered = rendered.replace(old, new)
+        rendered = attr.sub(
+            lambda match: match.group("head")
+            + public_ref(match.group("ref"), html)
+            + match.group("tail"),
+            source,
+        )
         if rendered != source:
             html.write_text(rendered, encoding="utf-8")
 

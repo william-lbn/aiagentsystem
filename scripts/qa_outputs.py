@@ -18,9 +18,18 @@ site = ROOT / "site"
 req((site / "index.html").exists(), "site index missing")
 htmls = list(site.rglob("*.html"))
 req(len(htmls) == cfg["expected_site_pages"], f"site pages={len(htmls)} expected={cfg['expected_site_pages']}")
-req(len(list((site / "chapters").glob("*.html"))) == cfg["expected_chapters"], "site chapter count")
-req(len(list((site / "appendices").glob("*.html"))) == cfg["expected_appendices"], "site appendix count")
-req(len(list((site / "labs").glob("*.html"))) == cfg["expected_core_labs"], "site lab count")
+chapter_pages = list((site / "chapters").glob("*.html")) + list((site / "book/zh/chapters").glob("*.html"))
+appendix_pages = list((site / "appendices").glob("*.html")) + list((site / "book/zh").glob("appendix-*.html"))
+lab_pages = list((site / "labs").glob("*.html")) + list((site / "labs/core").glob("*.html"))
+req(len(chapter_pages) == cfg["expected_chapters"], f"site chapter count={len(chapter_pages)}")
+req(len(appendix_pages) == cfg["expected_appendices"], f"site appendix count={len(appendix_pages)}")
+req(len(lab_pages) == cfg["expected_core_labs"], f"site lab count={len(lab_pages)}")
+for support in (
+    "docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md",
+    "experiments/benchmarks/catalog.json",
+    "workflows/external-agent-benchmarks.yml",
+):
+    req((site / support).is_file(), f"site support file missing: {support}")
 
 
 class Links(HTMLParser):
@@ -44,6 +53,11 @@ for hp in htmls:
         if not clean:
             continue
         target = (hp.parent / clean).resolve()
+        try:
+            target.relative_to(site.resolve())
+        except ValueError:
+            req(False, f"site ref escapes publication root {hp.relative_to(site)} -> {ref}")
+            continue
         req(target.exists(), f"broken site ref {hp.relative_to(site)} -> {ref}")
 wb = ROOT / "workbook/build"
 for ext in ("pdf", "html", "epub"):
