@@ -65,8 +65,14 @@ def run_one(dest: Path, label: str) -> dict[str, str]:
     # remain fixed by uv.lock.
     env["UV_HTTP_TIMEOUT"] = "120"
     # A same-host comparison must not silently switch Python versions. Each
-    # extraction therefore uses this verifier's exact interpreter and an
-    # isolated cache that is empty at the start of the run.
+    # extraction therefore uses this verifier's exact interpreter, its own
+    # virtual environment, and an isolated cache that is empty at the start of
+    # the run.  In particular, do not inherit the publisher container's
+    # UV_PROJECT_ENVIRONMENT: doing so would make both clean extractions share
+    # the outer release environment instead of testing independent rebuilds.
+    clean_venv = repo / ".venv"
+    env["UV_PROJECT_ENVIRONMENT"] = str(clean_venv)
+    env.pop("VIRTUAL_ENV", None)
     env["UV_CACHE_DIR"] = str(dest / "uv-cache")
     if platform.system() == "Darwin" and platform.machine() == "arm64":
         # A Rosetta-installed uv can otherwise launch native builds as x86_64
@@ -128,7 +134,7 @@ def run_one(dest: Path, label: str) -> dict[str, str]:
         raise SystemExit(
             f"CLEAN_REBUILD_BOOTSTRAP_FAILED label={label} rc={bootstrap.returncode} attempts={max_bootstrap_attempts}"
         )
-    py = repo / ".venv/bin/python"
+    py = clean_venv / "bin/python"
     if not py.exists():
         raise SystemExit(f"CLEAN_REBUILD_PYTHON_MISSING label={label} path={py}")
     audit_code = (
