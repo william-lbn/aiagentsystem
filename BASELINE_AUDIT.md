@@ -27,7 +27,7 @@ The first public baseline repairs the hardest defects at the state-machine, test
 - Source locks: **100**; upstream behavior contracts: **10** (not externally executed in this release).
 - Scoped official/upstream implementation evidence: **6/6** (MCP, A2A, OpenAI Agents, LangGraph, Google ADK, MAF), each with an explicit claim ceiling.
 - External benchmark contracts: **2**, both explicitly not executed; no SWE-bench or WebArena score is claimed.
-- Same-host SOURCE-CLEAN rebuild: **2 independent cold caches / 134 artifact files**, byte-equivalent with native-extension import audits.
+- Same-host SOURCE-CLEAN rebuild: **2 independent cold caches / 134 artifact files** with native-extension import audits; 130 use byte-exact SHA-256, while 2 PDF and 2 EPUB outputs use documented format-aware fingerprints.
 
 ## Remaining claim ceilings
 

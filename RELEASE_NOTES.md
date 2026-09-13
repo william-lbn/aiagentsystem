@@ -36,7 +36,7 @@
 - Lab runner / example runner 为并发任务隔离 `AGENTLAB_HOME`，避免共享 checkpoint/journal 把资源竞争误报成语义失败。
 - **Artifact serialization determinism**：EPUB 固定 course/version/artifact 派生 UUIDv5 identifier；XeLaTeX/xdvipdfmx 使用内容派生 trailer ID；PPTX 在 `python-pptx` 保存后按 `SOURCE_DATE_EPOCH` 规范化 ZIP timestamp/member order/permissions。
 - **Canonical input determinism**：Quarto Book/Workbook 使用稳定 publication UUID；127 个 Website 输入使用显式顺序，prepared source mtime 统一到 `SOURCE_DATE_EPOCH`。
-- **Clean rebuild gate 可诊断化**：两份 SOURCE-CLEAN extraction 分别按 Book → Site → Workbook → Slides 执行，每 surface 有独立 timeout/exit status；比较 PDF/EPUB/PPTX/HTML/SVG/PNG/CSS/JS SHA-256，不把“能够构建”与“byte-identical”混为一个模糊结论。
+- **Clean rebuild gate 可诊断化**：两份 SOURCE-CLEAN extraction 分别按 Book → Site → Workbook → Slides 执行，每 surface 有独立 timeout/exit status；PPTX/HTML/SVG/PNG/CSS/JS 等稳定文件比较原始 SHA-256，PDF/EPUB 比较结构、内容与渲染/payload 指纹，不把“能够构建”、格式语义等价与容器封装 byte-identical 混为一个模糊结论。
 
 ## 本地已验证出版规模
 

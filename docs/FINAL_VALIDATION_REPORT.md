@@ -31,7 +31,7 @@
 | Builder contract QA | PASS | digest-pinned base + uv pin + explicit APT non-hermetic ceiling |
 | Content semantics QA | PASS | exact/normalized repeat max=2; fuzzy groups=0 |
 | Repository QA | PASS | `VALIDATION_OK version=v1.0.0 ... pdf_pages=462 source_locks=100` |
-| Same-host two-clean-extraction rebuild | PASS | 2 cold caches; native import audits; 134 artifact hashes identical |
+| Same-host two-clean-extraction rebuild | PASS | 2 cold caches; native import audits; 130 raw SHA-256 + 2 PDF semantic + 2 EPUB payload fingerprints identical |
 
 ## Correctness evidence in v1.0
 

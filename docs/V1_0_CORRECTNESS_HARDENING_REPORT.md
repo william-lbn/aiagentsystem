@@ -26,6 +26,7 @@
 | XeLaTeX PDF clean rebuild 因 trailer ID 不同 | 为 xdvipdfmx 注入内容派生的 `pdf:trailerid`，不改变正文/排版 | repeated-build SHA-256 + PDF structure QA | FIXED |
 | python-pptx ZIP envelope 使用 wall-clock timestamp | 保存后按 `SOURCE_DATE_EPOCH`、固定成员顺序/权限规范化 OOXML ZIP；重新打开验证 | repeated-build SHA-256 + Slides QA | FIXED |
 | clean rebuild gate 黑盒 capture，长构建不可诊断 | 改为 Book/Site/Workbook/Slides 分阶段构建、每阶段独立日志/超时/退出码 | same-host clean-rebuild log | FIXED |
+| 把 PDF/EPUB 私有封装字节等同于出版语义 | 普通文件保留原始 SHA-256；PDF 比较元数据、layout text 与全页低分辨率渲染，EPUB 比较排序成员 payload 并规范标准修改时间 | format-aware clean-rebuild evidence | CLAIM-BOUNDED |
 | builder APT 层无法证明 bit-hermetic | digest-pin base、lock Python；记录 OS package inventory，并明确 claim ceiling | builder contract QA | HARDENED / CLAIM-BOUNDED |
 
 ## 2. 实验等级
@@ -52,7 +53,7 @@
 3. MCP/A2A Core Labs 对当前锁定规范的数据模型/关键不变量做 deterministic conformance 检查；
 4. 主书、Workbook、Site、Slides 可以从同一 source tree 生成，并经过结构 QA；
 5. source locks、upstream behavior contracts、release/tag/build contracts 有机器 gate。
-6. SOURCE-CLEAN 在同一 ARM64 主机、同一 Python、两个独立冷 cache 下完整重建，134 个发布表面文件 byte-identical；
+6. SOURCE-CLEAN 在同一 ARM64 主机、同一 Python、两个独立冷 cache 下完整重建；134 个发布表面中 130 个文件 byte-identical，2 个 PDF 与 2 个 EPUB 的格式感知指纹一致；
 7. 六项 pinned 官方实现实验的跨进程/跨重启行为、故障与独立 verifier 已形成可审计证据包。
 
 本 release **不证明**：

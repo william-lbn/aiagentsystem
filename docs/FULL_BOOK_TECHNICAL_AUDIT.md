@@ -8,7 +8,7 @@ v1.0 已从“覆盖 Agent API 与框架”的课程收敛为 **Agent Systems �
 
 - Canonical truth：`course.toml`、`book/zh/SUMMARY.md`、40 章、6 附录、80 DOT、代码/Labs、`SOURCE_LOCK.json`。
 - Generated artifacts：assembled book、PDF/HTML/EPUB、site、Workbook、PPTX、release ZIP。
-- Local verification：80 Core Labs、69 examples、114 pytest、90% line coverage、publication/structure/content/repository QA，以及两次 SOURCE-CLEAN 冷缓存重建的 134 文件哈希等价。
+- Local verification：80 Core Labs、69 examples、114 pytest、90% line coverage、publication/structure/content/repository QA，以及两次 SOURCE-CLEAN 冷缓存重建的 130 个原始哈希 + 4 个 PDF/EPUB 格式感知指纹等价。
 - External boundary：6 个 scoped 官方 SDK/框架向量已实跑；Docker canonical runner、商业模型 API、真实浏览器 benchmark、GPU/机器人/云资源及其余广义合同继续按证据状态独立记录。
 
 ## v1.0 的主要质量修复

@@ -32,7 +32,7 @@
 | Content semantics QA | PASS | exact/normalized repeat max=2; fuzzy groups=0 |
 | Repository QA | PASS | `VALIDATION_OK version=v1.0.0 ... pdf_pages=462 source_locks=100` |
 | Repeated artifact serialization | PASS | Book PDF/EPUB, Workbook PDF/EPUB, Slides PPTX rebuilt twice with identical SHA-256; PPTX reopened successfully |
-| Same-host two-clean-extraction rebuild | PASS | `SAME_HOST_CLEAN_REBUILD_EQUIVALENCE_OK files=134`; SOURCE-CLEAN SHA、主机/Python 与逐文件哈希见 `validation_logs/same-host-clean-rebuild.json` |
+| Same-host two-clean-extraction rebuild | PASS | `artifacts=134 raw_sha256=130 pdf_semantic=2 epub_payload=2`; SOURCE-CLEAN SHA、主机/Python、比较策略与逐文件指纹见 `validation_logs/same-host-clean-rebuild.json` |
 
 ## Correctness evidence in v1.0
 

@@ -27,7 +27,7 @@ All notable public changes are documented here. The project follows [Semantic Ve
 - 80 Core Labs, 114 pytest tests, 90% line coverage and 69 executable examples.
 - Hosted canonical publication: 484-page book, 165-page workbook, 127-page website and 90-slide deck; local compatibility publication: 462-page book and 164-page workbook.
 - Six scoped L5 evidence packages and 100 external source locks.
-- Two isolated same-host compatibility cold rebuilds with 134 publication artifacts byte-equivalent.
+- Two isolated same-host compatibility cold rebuilds with 134 format-aware publication comparisons: 130 byte-exact SHA-256 values, 2 PDF semantic/render fingerprints and 2 EPUB payload fingerprints.
 
 ### Known evidence limits
 

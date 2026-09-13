@@ -107,13 +107,13 @@ make validate
 make release
 ```
 
-Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file mode、排序和压缩参数，并执行两次独立打包 SHA-256 比较与 SOURCE-CLEAN 污染检查。随后把 SOURCE-CLEAN 解包两次，以同一解释器、相互隔离的空依赖 cache 和锁定的 runtime + `publish` 依赖重建 book/site/workbook/slides；每次 bootstrap 都先导入审计 lxml/Pillow/python-pptx/Pydantic Core，再逐文件比较发布表面哈希。`quality` 工具不参与出版物重建，它们由 `make validate` 的 lint、coverage、dependency-audit 与索引门禁独立验证。
+Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file mode、排序和压缩参数，并执行两次独立打包 SHA-256 比较与 SOURCE-CLEAN 污染检查。随后把 SOURCE-CLEAN 解包两次，以同一解释器、相互隔离的 `.venv`、空依赖 cache 和锁定的 runtime + `publish` 依赖重建 book/site/workbook/slides；每次 bootstrap 都先导入审计 lxml/Pillow/python-pptx/Pydantic Core。普通文件比较原始 SHA-256；EPUB 比较排序后的内部成员与 payload，并只把标准修改时间映射到 `SOURCE_DATE_EPOCH`；PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹。`quality` 工具不参与出版物重建，它们由 `make validate` 的 lint、coverage、dependency-audit 与索引门禁独立验证。
 
 ## 6. Docker / CI 的定位
 
 `Dockerfile.builder`、`make release-container` 与 SHA-pinned GitHub Actions 构成 canonical 出版路径。GitHub hosted CI 已在 digest-pinned builder 中实跑 Quarto 1.11.1，完成 484 页主书、165 页 Workbook、127 页网站、90 页课件及全部出版 QA；产物由 CI artifact 保存。本机无需 Docker 也可运行 compatibility 路径，因此 Docker 不是内容开发的阻断条件。
 
-Pandoc compatibility release 已完成两次独立冷 cache 的 SOURCE-CLEAN 重建并逐文件比对 134 个出版表面。v1.0.0 不把不同宿主系统上第三方出版器生成文件的原始字节完全相同设为发布门槛，也不宣称 cross-host bit-for-bit reproducibility；发布保证聚焦于锁定 container 的 canonical 构建、同 host clean rebuild、结构/内容语义 QA、校验和、SBOM 与 provenance。外部 benchmark 同样只完成 pinned execution contract，没有 SWE-bench/WebArena 分数。
+Pandoc compatibility release 对两次独立冷 cache 的 SOURCE-CLEAN 重建执行 134 个出版表面比较：130 个稳定文件做原始 SHA-256，2 个 PDF 与 2 个 EPUB 做上述格式感知指纹。v1.0.0 不宣称 PDF/EPUB 封装字节或不同宿主系统上第三方出版器输出的 bit-for-bit identity；发布保证聚焦于锁定 container 的 canonical 构建、同 host format-aware clean rebuild、结构/内容语义 QA、校验和、SBOM 与 provenance。外部 benchmark 同样只完成 pinned execution contract，没有 SWE-bench/WebArena 分数。
 
 六项 scoped 官方实现证据、真实 benchmark 的未运行边界与下一阶段验收标准见 [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md)。
 

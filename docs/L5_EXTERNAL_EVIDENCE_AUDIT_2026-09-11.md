@@ -13,7 +13,7 @@
 - **协议**：两项 scoped official-SDK interoperability 已通过；跨语言/远程/security profile 未通过验收。
 - **durability**：OpenAI Agents、LangGraph、Google ADK、Microsoft Agent Framework 各自的真实持久化 surface 已跨进程验证；不能把这些不同 surface 统称为 exactly-once durable execution。
 - **benchmark**：真实官方 harness 契约与手工 CI 入口已建立；当前只有 readiness evidence，没有模型成绩。
-- **reproducibility**：同 host 的两次 SOURCE-CLEAN 冷重建已逐文件一致；canonical Quarto container 已在 hosted CI 实跑。跨 host bit-for-bit identity 不属于 v1.0.0 的发布保证。
+- **reproducibility**：同 host 的两次 SOURCE-CLEAN 冷重建已通过格式感知比较；canonical Quarto container 已在 hosted CI 实跑。PDF/EPUB 封装字节与跨 host bit-for-bit identity 不属于 v1.0.0 的发布保证。
 
 这比继续增加篇幅更有价值，因为它把“代码看起来合理”提升为“外部实现实际做了什么、在什么边界内成立、怎样被第三方复验”。
 
@@ -121,9 +121,9 @@ $$
 
 ## 7. Canonical reproducibility：发布保证与边界
 
-v1.0.0 的 canonical 出版路径使用 digest-pinned builder、锁定的 Quarto/Python 依赖、`SOURCE_DATE_EPOCH`、稳定 EPUB identifier、内容派生 PDF trailer ID，以及规范化的 PPTX/ZIP metadata。GitHub hosted CI 已实际构建并验证全部出版表面；本地 compatibility release 另以两次隔离的 SOURCE-CLEAN 冷重建逐文件比较 134 个产物。
+v1.0.0 的 canonical 出版路径使用 digest-pinned builder、锁定的 Quarto/Python 依赖、`SOURCE_DATE_EPOCH`、稳定 EPUB identifier、内容派生 PDF trailer ID，以及规范化的 PPTX/ZIP metadata。GitHub hosted CI 已实际构建并验证全部出版表面；compatibility release 另以两次隔离的 SOURCE-CLEAN 冷重建比较 134 个产物：130 个稳定文件做原始 SHA-256，PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹，EPUB 比较排序后的成员名与 payload，并只规范 `dcterms:modified`。
 
-本项目不把不同宿主系统上第三方出版器生成文件的原始字节完全一致作为 v1.0.0 发布保证。预发布诊断中，两端内容与结构 QA 均通过，但 Quarto 1.11.1 生成的 Bootstrap CSS 存在规则排列及内容哈希文件名差异，继而改变引用该文件的 HTML 字节；这不应被包装成“已通过”，也不应让非语义差异长期阻断开源发布。因此发布门保留锁定 container 的 canonical build、同 host clean rebuild、语义/结构 QA、校验和、SBOM 与 provenance，并明确不宣称 cross-host bit-for-bit reproducibility。
+本项目不把 PDF/EPUB 私有封装字节或不同宿主系统上第三方出版器生成文件的原始字节完全一致作为 v1.0.0 发布保证。预发布诊断中，两端内容与结构 QA 均通过，但 Quarto 1.11.1 生成的 Bootstrap CSS 存在规则排列及内容哈希文件名差异，继而改变引用该文件的 HTML 字节；同一 Linux host 的 Pandoc/XeLaTeX 也可能改变 PDF/EPUB 的非语义封装字节。这些差异不应被包装成“bit-for-bit 已通过”，也不应让非语义差异长期阻断开源发布。因此发布门保留锁定 container 的 canonical build、同 host format-aware clean rebuild、语义/结构 QA、校验和、SBOM 与 provenance，并明确不宣称跨 host 或所有容器格式的原始字节复现。
 
 此外，builder 中普通 APT/CTAN repository 仍非 snapshot-hermetic。即使 base image digest 固定，build-time package resolution 仍可能随仓库时间变化；release 必须保存实际 dpkg/TeX inventory，并保持这一 claim ceiling。若未来重新研究跨 host 位级复现，应先定义按格式区分的 semantic normalization 与可接受差异，而不是把所有 HTML/CSS/PDF/EPUB/PPTX 一律做未经建模的原始 hash 等价。
 

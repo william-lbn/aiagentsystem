@@ -16,9 +16,9 @@
 | Upstream behavior contracts | 10 | **DEFINED, NOT EXECUTED** — `EXTERNAL_NOT_RUN_IN_THIS_RELEASE` |
 | Scoped official implementation evidence | 6 | **VERIFIED** — MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF；每项均保留独立 claim ceiling |
 | External coding/browser benchmarks | 2 | **PINNED CONTRACTS; NOT EXECUTED** — SWE-bench Lite / WebArena；没有发布分数 |
-| Cross-host canonical comparison | 2-host matrix | **WORKFLOW DEFINED; NOT EXECUTED** — Ubuntu 22.04/24.04 尚无本发行版 compare artifact |
-| Canonical Quarto container | 1 path | **DEFINED/PINNED; NOT EXECUTED** — `linux/arm64` daemon verified; fixed GHCR base pull blocked by EOF/no response |
-| Same-host SOURCE-CLEAN rebuild | 2 cold caches / 134 files | **VERIFIED** — 两次 bootstrap、原生依赖导入与全部发布表面哈希一致 |
+| Cross-host canonical comparison | 2-host diagnostic | **OUTSIDE RELEASE CLAIM / WORKFLOW REMOVED** — 两端结构与内容 QA 通过，但 Quarto Bootstrap CSS 字节排序不同；v1.0.0 不发布 bit-for-bit 声明 |
+| Canonical Quarto container | 1 digest-pinned path | **VERIFIED IN GITHUB HOSTED CI** — Quarto 1.11.1；484-page book / 165-page workbook / 127-page site / 90-slide deck |
+| Same-host SOURCE-CLEAN rebuild | 2 cold caches / 134 files | **VERIFIED, FORMAT-AWARE** — 两次 bootstrap、原生依赖导入；130 个原始 SHA-256、2 个 PDF 语义/渲染指纹、2 个 EPUB payload 指纹一致 |
 | Production Docker/Compose path | 1 | **CODE/TEST COVERED; NOT CLAIMED AS CLOUD/PRODUCTION E2E** |
 
 ## Evidence semantics
