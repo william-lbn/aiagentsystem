@@ -33,6 +33,8 @@ for p in chapter_paths():
 ppt = ROOT / "slides" / f"AI-Agent-Systems-Course-{meta['version']}.pptx"
 req(ppt.exists(), f"missing {ppt}")
 if ppt.exists():
+    mode = ppt.stat().st_mode & 0o777
+    req((mode & 0o444) == 0o444, f"slide artifact mode={mode:o} must be host-readable")
     prs = Presentation(ppt)
     req(len(prs.slides) == cfg["expected_slides"], f"slides={len(prs.slides)} expected {cfg['expected_slides']}")
     alltext = "\n".join(sh.text for sl in prs.slides for sh in sl.shapes if hasattr(sh, "text"))

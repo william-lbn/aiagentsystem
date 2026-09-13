@@ -45,6 +45,10 @@ def normalize_ooxml_zip(path: Path):
                 zi.compress_type = ctype
                 zout.writestr(zi, data, compress_type=ctype, compresslevel=9 if ctype == zipfile.ZIP_DEFLATED else None)
         os.replace(tmp, path)
+        # mkstemp creates mode 0600. Canonical builds run as container root,
+        # while artifact upload runs as the host runner, so the publication
+        # envelope must be explicitly readable outside the container.
+        path.chmod(0o644)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
