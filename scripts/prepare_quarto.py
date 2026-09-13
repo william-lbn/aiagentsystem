@@ -83,6 +83,7 @@ def book_yaml() -> str:
         "    number-sections: true",
         "    pdf-engine: xelatex",
         "    latex-auto-install: false",
+        '    babel-lang: "chinese"',
         f"    papersize: {q(PDF.get('paper_size', 'a4'))}",
         f"    geometry: {q('margin=' + PDF.get('margin', '2.4cm'))}",
         f"    mainfont: {q(FONTS.get('main', 'Noto Serif CJK SC'))}",
@@ -165,6 +166,7 @@ def workbook_yaml() -> str:
     lines += [
         "    pdf-engine: xelatex",
         "    latex-auto-install: false",
+        '    babel-lang: "chinese"',
         "    toc: true",
         "    toc-depth: 1",
         f"    papersize: {q(PDF.get('paper_size', 'a4'))}",

@@ -19,7 +19,7 @@ All notable public changes are documented here. The project follows [Semantic Ve
 - Aligned MCP 2026-07-28 and A2A 1.0 teaching contracts with their protocol structures while separating fixtures from official SDK evidence.
 - Made SOURCE_LOCK coverage closed-world for chapter and appendix URLs and attached explicit claim ceilings to external evidence.
 - Centralized repeated methodology so the 462-page book carries higher information density without expanding the 40-chapter scope.
-- Made canonical PDF rendering fail closed: all observed TeX dependencies are declared in the builder lock, Quarto package auto-installation is disabled, and diagram paths are valid in both per-chapter Quarto and assembled-book Pandoc contexts.
+- Made canonical PDF rendering fail closed: all observed TeX dependencies are declared in the builder lock, Quarto package auto-installation is disabled, diagram paths are valid in both per-chapter Quarto and assembled-book Pandoc contexts, and PDF Babel language is explicitly mapped while preserving `zh-Hans` document metadata.
 
 ### Verified
 
