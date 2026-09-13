@@ -35,6 +35,7 @@
 - 修复 Pandoc→XeLaTeX vector-diagram path：出版链改为显式两阶段构建，并从 repo root 使用稳定相对图路径；既避免旧的一步式临时目录查找问题，也避免不同 checkout 的绝对路径泄漏到 PDF。
 - Lab runner / example runner 为并发任务隔离 `AGENTLAB_HOME`，避免共享 checkpoint/journal 把资源竞争误报成语义失败。
 - **Artifact serialization determinism**：EPUB 固定 course/version/artifact 派生 UUIDv5 identifier；XeLaTeX/xdvipdfmx 使用内容派生 trailer ID；PPTX 在 `python-pptx` 保存后按 `SOURCE_DATE_EPOCH` 规范化 ZIP timestamp/member order/permissions。
+- **Canonical input determinism**：Quarto Book/Workbook 使用稳定 publication UUID；127 个 Website 输入使用显式顺序，prepared source mtime 统一到 `SOURCE_DATE_EPOCH`。
 - **Clean rebuild gate 可诊断化**：两份 SOURCE-CLEAN extraction 分别按 Book → Site → Workbook → Slides 执行，每 surface 有独立 timeout/exit status；比较 PDF/EPUB/PPTX/HTML/SVG/PNG/CSS/JS SHA-256，不把“能够构建”与“byte-identical”混为一个模糊结论。
 
 ## 本地已验证出版规模
@@ -44,6 +45,8 @@
 - Workbook：**164 A4 pages**，PDF/HTML/EPUB；
 - Slides：**90 slides**；
 - Core Labs：**80/80**；Python examples：**69/69**；pytest：**114/114**；行覆盖率：**90%**；Source locks：**100**；scoped L5 evidence：**6/6**。
+
+GitHub hosted canonical CI 另已在 digest-pinned Quarto 1.11.1 builder 中验证：Main Book **484 pages**、Workbook **165 pages**、Website **127 pages**、Slides **90**。两种 publisher 的分页差异属于排版后端差异，报告分别保留，不互相覆盖。
 
 本版本把跨章通用方法论中央化并移除模板化重复，同时加入 L5 外部实现证据。目标是提高每页信息密度，而不是用页数替代技术深度。
 

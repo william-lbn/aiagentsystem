@@ -8,12 +8,12 @@
 
 本轮升级已经把项目从“章节多、fixture 多、上游链接多”推进到一组真实但严格限域的外部实现证据：六个 pinned 官方/上游 runtime 实验全部有命令、环境、原始 stdout/stderr、机器断言、业务 observation、source hash 与 artifact hash，并通过统一证据 QA。尤其是 MCP 与 A2A 已不再停留在手写 wire shape 或进程内调用，而是让官方 client/server 穿过 loopback socket 和独立 OS 进程完成真实协议交互。
 
-但项目还不能宣称“L5 全面完成”。真实 SWE-bench/WebArena 本次没有运行；跨 Ubuntu host 的 canonical workflow 已定义但没有获得 CI 运行证据；MCP/A2A 也尚未完成跨语言、远程鉴权和多 transport 矩阵。准确结论是：
+但项目还不能宣称“L5 全面完成”。真实 SWE-bench/WebArena 本次没有运行；MCP/A2A 也尚未完成跨语言、远程鉴权和多 transport 矩阵；出版系统不宣称跨 host 原始字节完全一致。准确结论是：
 
 - **协议**：两项 scoped official-SDK interoperability 已通过；跨语言/远程/security profile 未通过验收。
 - **durability**：OpenAI Agents、LangGraph、Google ADK、Microsoft Agent Framework 各自的真实持久化 surface 已跨进程验证；不能把这些不同 surface 统称为 exactly-once durable execution。
 - **benchmark**：真实官方 harness 契约与手工 CI 入口已建立；当前只有 readiness evidence，没有模型成绩。
-- **reproducibility**：same-host 机制与 cross-host hash comparator 已实现；跨 host 结果仍待实际 workflow 产出。
+- **reproducibility**：同 host 的两次 SOURCE-CLEAN 冷重建已逐文件一致；canonical Quarto container 已在 hosted CI 实跑。跨 host bit-for-bit identity 不属于 v1.0.0 的发布保证。
 
 这比继续增加篇幅更有价值，因为它把“代码看起来合理”提升为“外部实现实际做了什么、在什么边界内成立、怎样被第三方复验”。
 
@@ -119,17 +119,13 @@ $$
 
 缺任何一项都可能把 harness error、数据漂移、缓存复用、登录失效或人工介入误写成模型能力。仓库 Core Lab 30 现在用采购策略 drift 演示这一点：两次局部 verifier 都为 2/2，但 fixture SHA-256 不同，所以比较必须失败。
 
-## 7. Canonical reproducibility：定义完成，跨 host 尚未证明
+## 7. Canonical reproducibility：发布保证与边界
 
-`.github/workflows/cross-host-canonical.yml` 在 `ubuntu-22.04` 与 `ubuntu-24.04` 上构建同一个 digest-pinned builder path，输出 semantic artifact hash manifest，再由独立 compare job 检查。`scripts/hash_canonical_outputs.py` 与 `scripts/compare_canonical_hashes.py` 已实现 producer、surface 和 hash 的闭环。
+v1.0.0 的 canonical 出版路径使用 digest-pinned builder、锁定的 Quarto/Python 依赖、`SOURCE_DATE_EPOCH`、稳定 EPUB identifier、内容派生 PDF trailer ID，以及规范化的 PPTX/ZIP metadata。GitHub hosted CI 已实际构建并验证全部出版表面；本地 compatibility release 另以两次隔离的 SOURCE-CLEAN 冷重建逐文件比较 134 个产物。
 
-当前仍不能写“cross-host reproducible”，因为 workflow 没有产生本次 release 的两份 runner manifest 与 compare artifact。并且 builder 中普通 APT repository 仍非 snapshot-hermetic；即使 base image digest 固定，build-time package index 也可能漂移。最终验收需要：
+本项目不把不同宿主系统上第三方出版器生成文件的原始字节完全一致作为 v1.0.0 发布保证。预发布诊断中，两端内容与结构 QA 均通过，但 Quarto 1.11.1 生成的 Bootstrap CSS 存在规则排列及内容哈希文件名差异，继而改变引用该文件的 HTML 字节；这不应被包装成“已通过”，也不应让非语义差异长期阻断开源发布。因此发布门保留锁定 container 的 canonical build、同 host clean rebuild、语义/结构 QA、校验和、SBOM 与 provenance，并明确不宣称 cross-host bit-for-bit reproducibility。
 
-1. 保存两个 host 的 runner image、kernel、Docker/BuildKit、builder image digest；
-2. 保存所有输入 lock/source commit 和 `SOURCE_DATE_EPOCH`；
-3. 比较 PDF/EPUB/HTML/PPTX/manifest 的适当 canonical surface；
-4. 对不应 bit-identical 的 metadata 先定义 semantic normalization，不能在结果出来后临时删字段；
-5. 将 APT 改为 snapshot repository 或提交完整 package inventory，并在 claim ceiling 中保留剩余 non-hermetic source。
+此外，builder 中普通 APT/CTAN repository 仍非 snapshot-hermetic。即使 base image digest 固定，build-time package resolution 仍可能随仓库时间变化；release 必须保存实际 dpkg/TeX inventory，并保持这一 claim ceiling。若未来重新研究跨 host 位级复现，应先定义按格式区分的 semantic normalization 与可接受差异，而不是把所有 HTML/CSS/PDF/EPUB/PPTX 一律做未经建模的原始 hash 等价。
 
 ## 8. 书籍与实验应采用的统一章节结构
 
@@ -161,7 +157,6 @@ $$
 
 1. 在满足磁盘和隔离条件的 runner 上执行一条 SWE-bench Lite 真实任务，提交 agent trajectory、patch、gold sanity、官方 evaluator 原始文件与 hash；无论 resolved 与否都如实记录。
 2. 部署并 reset WebArena 自托管 stack，执行一个固定 task，提交站点 image/config/login/trajectory/evaluator/reset 全证据。
-3. 运行 cross-host canonical workflow，保存 Ubuntu 22.04/24.04 manifests 和 compare artifact；若不一致，先分类 nondeterministic surface，再修复或缩窄 claim。
 
 ### P1 — 增加真正的 interoperability/failover 深度
 
@@ -181,4 +176,4 @@ $$
 
 项目已经具备高质量开源教材应有的主体：理论不变量、可运行 Core Labs、真实官方 runtime 实验、机器证据门、外部 benchmark 契约和可复现构建接口。最重要的进步不是文件数增加，而是正文开始服从证据等级。
 
-下一版不应继续追求“更多章节/更多 Hello World”。发布质量应由四个问题决定：是否真的穿过外部边界、是否真的触发并观察故障、是否有独立 verifier、是否把没有证明的部分清楚写出来。只有在真实 benchmark 和 cross-host 证据落库后，项目才可以把相应状态从 `DEFINED/NOT_EXECUTED` 升级为 `VERIFIED`。
+下一版不应继续追求“更多章节/更多 Hello World”。发布质量应由四个问题决定：是否真的穿过外部边界、是否真的触发并观察故障、是否有独立 verifier、是否把没有证明的部分清楚写出来。只有真实 benchmark 的 trajectory、环境身份、外部 effect 与官方 grader 证据落库后，项目才可以把相应状态从 `DEFINED/NOT_EXECUTED` 升级为 `VERIFIED`。

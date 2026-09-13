@@ -41,9 +41,9 @@ Build System 1.1.2 使用 `ctexbook` 书籍语义而不是 `article`：独立书
 - 114 项 pytest，语句/分支综合覆盖率 **90%**（门槛 85%）；
 - 100 个 external source locks；
 - 80 张 canonical DOT 技术图；
-- 主书 PDF / HTML / EPUB，当前 PDF **462 页 A4**；
+- 主书 PDF / HTML / EPUB：canonical Quarto PDF **484 页 A4**，本地 compatibility PDF **462 页 A4**；
 - Course Website **127 个 HTML 页面**；
-- 80-Lab Workbook PDF / HTML / EPUB，当前 PDF **164 页 A4**；
+- 80-Lab Workbook PDF / HTML / EPUB：canonical Quarto PDF **165 页 A4**，本地 compatibility PDF **164 页 A4**；
 - **90 页 PPTX**。
 
 完整实跑证据见 [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md)。
@@ -111,7 +111,9 @@ Release builder 使用 `SOURCE_DATE_EPOCH`、固定 ZIP entry timestamp、file m
 
 ## 6. Docker / CI 的定位
 
-`Dockerfile.builder`、`make release-container` 与 SHA-pinned GitHub Actions 已作为 canonical CI hardening 接口保留，但 **Docker 不是本地内容验证的阻断条件**。本机确认 Docker daemon `27.4.0` 为 `linux/arm64`；拉取固定 Quarto base digest 时 GHCR/daemon 链路连续 EOF/无响应，因此没有把 canonical container rebuild 写成已完成。Pandoc compatibility release 已完成两次独立冷 cache 的 SOURCE-CLEAN 重建并比对 134 个文件；跨 Ubuntu 22.04/24.04 workflow 尚无 compare artifact，所以仍不宣称 cross-host reproducibility。外部 benchmark 同样只完成 pinned execution contract，没有 SWE-bench/WebArena 分数。
+`Dockerfile.builder`、`make release-container` 与 SHA-pinned GitHub Actions 构成 canonical 出版路径。GitHub hosted CI 已在 digest-pinned builder 中实跑 Quarto 1.11.1，完成 484 页主书、165 页 Workbook、127 页网站、90 页课件及全部出版 QA；产物由 CI artifact 保存。本机无需 Docker 也可运行 compatibility 路径，因此 Docker 不是内容开发的阻断条件。
+
+Pandoc compatibility release 已完成两次独立冷 cache 的 SOURCE-CLEAN 重建并逐文件比对 134 个出版表面。v1.0.0 不把不同宿主系统上第三方出版器生成文件的原始字节完全相同设为发布门槛，也不宣称 cross-host bit-for-bit reproducibility；发布保证聚焦于锁定 container 的 canonical 构建、同 host clean rebuild、结构/内容语义 QA、校验和、SBOM 与 provenance。外部 benchmark 同样只完成 pinned execution contract，没有 SWE-bench/WebArena 分数。
 
 六项 scoped 官方实现证据、真实 benchmark 的未运行边界与下一阶段验收标准见 [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md)。
 

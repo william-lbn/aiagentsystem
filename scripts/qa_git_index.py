@@ -27,7 +27,6 @@ FORBIDDEN_EXACT = {
     ".DS_Store",
     "MANIFEST.md",
     "book/zh/book.md",
-    "cross-host-canonical-evidence.json",
 }
 FORBIDDEN_SUFFIXES = {".key", ".pem", ".pyc", ".pyo"}
 GENERATED_PATTERNS = (

@@ -10,6 +10,11 @@
     "Noto Sans CJK SC",
     "Noto Sans Mono CJK SC"
   ],
-  "canonical_quarto": "1.11.1 (defined but not run on this host)",
-  "note": "Exact Python dependency resolution is in uv.lock. These host tools describe the verified compatibility environment; canonical OCI runtime is a follow-on CI hardening path."
+  "canonical_quarto": "1.11.1 (verified by hosted digest-pinned OCI CI)",
+  "hosted_canonical": {
+    "verified_on": "2026-09-13",
+    "workflow": "https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml",
+    "scope": "canonical publication build, QA and artifact upload"
+  },
+  "note": "Exact Python dependency resolution is in uv.lock. Host tools describe the local compatibility environment; the canonical publisher is independently verified in the locked OCI workflow. Cross-host bit-for-bit identity is outside the v1.0.0 release claim."
 }

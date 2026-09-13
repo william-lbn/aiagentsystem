@@ -32,7 +32,6 @@ dist/
 validation_logs/
 .external/
 downloaded-manifests/
-cross-host-canonical-evidence.json
 
 # Runtime state
 production/agentops_service/data/*.db

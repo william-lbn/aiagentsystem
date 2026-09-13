@@ -5,10 +5,10 @@
 - Content version: **v1.0.0**
 - Build System: **1.1.2**
 - Local publisher actually executed: **Pandoc compatibility path**
-- Canonical Quarto/Docker path: configured and source-QA checked; local `linux/arm64` daemon verified, but fixed GHCR base pull failed with EOF/no response, so **not executed in this evidence set**
+- Hosted canonical publisher actually executed: **Quarto 1.11.1 in the digest-pinned OCI builder**; see the [CI workflow history](https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml)
 - External upstream/provider/browser/GPU/cloud experiments: **not promoted without execution evidence**
 
-## Local validation results
+## Validation results
 
 | Gate | Result | Evidence |
 |---|---|---|
@@ -17,11 +17,12 @@
 | Ruff source lint | PASS | Python source, tests, production service, experiments, scripts, examples and labs |
 | Python dependency audit | PASS | `pip-audit --local`; no known vulnerabilities; CycloneDX SBOM generated |
 | Python examples | PASS | 69/69 |
-| Book QA | PASS | 40 chapters / 80 labs / **462-page** PDF |
+| Local compatibility Book QA | PASS | 40 chapters / 80 labs / **462-page** PDF |
 | PDF structure QA | PASS | 7 parts / 40 chapters / 6 appendices |
-| Workbook structure QA | PASS | **164 pages / 80 labs** |
+| Local compatibility Workbook structure QA | PASS | **164 pages / 80 labs** |
 | Slides QA | PASS | **90 slides** |
-| Output QA | PASS | Site **127 pages**; main book 462; workbook 164 |
+| Local compatibility Output QA | PASS | Site **127 pages**; main book 462; workbook 164 |
+| Hosted canonical publication | PASS | Quarto 1.11.1 container: main book **484 pages**; workbook **165 pages**; site **127 HTML pages**; slides **90**; canonical artifact upload succeeded |
 | Source QA | PASS | 40 chapters / 6 appendices / 80 labs / 80 diagrams / 100 source locks |
 | SOURCE_LOCK coverage | PASS | 48 unique external URLs covered; 1 `.invalid` fixture allowlist |
 | Upstream contract QA | PASS | 10 contracts; status=`EXTERNAL_NOT_RUN_IN_THIS_RELEASE` |
