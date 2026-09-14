@@ -2,6 +2,16 @@
 
 All notable public changes are documented here. The project follows [Semantic Versioning](https://semver.org/) and the structure of [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- README quality gate that checks every local link and requires exact coverage of the 40 canonical chapters, 80 Core Labs, 6 appendices and versioned release download assets.
+
+### Changed
+
+- Rebuilt the Chinese README around reader workflows: auditable PDF/EPUB/HTML downloads, GitHub reading, learning paths, chapter summaries, per-chapter normal/fault lab links, evidence semantics, code entry points and release verification.
+
 ## [1.0.0] - 2026-09-11
 
 ### Added

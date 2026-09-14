@@ -11,7 +11,7 @@ SOURCE_DATE_EPOCH := $(shell awk -F '[[:space:]]*=[[:space:]]*' '/^source_date_e
 .PHONY: bootstrap bootstrap-check toolchain toolchain-canonical diagrams diagram-assets assemble quarto-config-qa \
         book site workbook slides build build-compat build-canonical examples labs test core-validate \
         lint coverage dependency-audit security-qa git-index-qa \
-        book-qa pdf-structure-qa workbook-structure-qa slides-qa source-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa external-benchmark-preflight builder-lock-qa output-qa content-qa qa repo-qa validate validate-canonical \
+        book-qa pdf-structure-qa workbook-structure-qa slides-qa source-qa readme-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa external-benchmark-preflight builder-lock-qa output-qa content-qa qa repo-qa validate validate-canonical \
         manifest release-checksums deterministic-packaging same-host-clean-rebuild reproducible release release-compat release-container release-container-inner source-clean clean
 
 bootstrap:
@@ -102,6 +102,9 @@ slides-qa:
 source-qa:
 	$(PYTHON) scripts/qa_source.py
 
+readme-qa:
+	$(PYTHON) scripts/qa_readme.py
+
 source-lock-qa:
 	$(PYTHON) scripts/qa_source_lock_coverage.py
 
@@ -128,7 +131,7 @@ output-qa:
 content-qa:
 	$(PYTHON) scripts/qa_content_semantics.py
 
-qa: source-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa builder-lock-qa quarto-config-qa book-qa pdf-structure-qa workbook-structure-qa slides-qa output-qa content-qa
+qa: source-qa readme-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa builder-lock-qa quarto-config-qa book-qa pdf-structure-qa workbook-structure-qa slides-qa output-qa content-qa
 
 repo-qa:
 	$(PYTHON) scripts/validate_repo.py
