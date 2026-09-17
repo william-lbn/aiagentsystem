@@ -1,17 +1,12 @@
-# Lab 01B — AI Agent Systems：从模型调用到可运行系统｜故障注入
+# Lab 01B — 过期审批的 fail-closed｜故障注入
 
 ## 实验目标
 
-验证不变量：**model decision is not a side effect; runtime owns execution evidence**
+反事实验证：当恢复请求携带 `stale-action-id` 时，被测 Runtime 必须检测 action identity 不匹配、保持等待态并产生 **0 次副作用**。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 01A 相同：Python `3.11–3.13`，macOS/Linux，`arm64/x86_64`；无网络、Docker 与 API key；临时目录隔离 checkpoint/journal。
 
 ## 环境准备
 
@@ -20,33 +15,39 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与故障模型
 
-入口：`examples/chapters/ch01_foundation.py`；核心机制：`src/agentlab/course_scenarios.py::foundation`。
+入口 `examples/chapters/ch01_foundation.py` 以 `--fault` 进入同一 `foundation` 场景。系统仍注册真实 `rotate_credential` 工具并走正常恢复 API；唯一自变量是把 pending action ID 替换为 `stale-action-id`。故障不是脚本提前 return，也不是 mock 出一个错误响应。
 
-本实验输入由 `foundation` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::foundation`
-- `examples/chapters/ch01_foundation.py::main`
-
-## 实验 B：故障注入路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch01_foundation.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "model decision is not a side effect; runtime owns execution evidence", "invariant_holds": true, "observation": {"answer": null, "status": "TOOL_NOT_APPLIED", "steps": 1}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "foundation", "system_detected": true}
+{"approval_bound": false, "effect_count": 0, "first_status": "WAITING_APPROVAL", "receipt_verified": false, "resume_status": "WAITING_APPROVAL"}
 ```
 
-### 验收标准
+完整 stdout 应同时包含 `system_detected=true`、`contained=true`、`invariant_holds=true`、`evidence_level=L3_CONTAINED`。
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+## 调试断点
 
-### 进阶修改
+- 在 `foundation` 中记录 pending 与 supplied action；
+- 在 Runtime 审批分支确认比较发生在工具调用之前；
+- 在 `rotate_credential` 首行设断点：本实验中该断点**不得命中**；
+- 结束时检查 effects 长度与 checkpoint phase。
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+## 验收标准
+
+只有同时满足以下条件才 PASS：故障确实注入；系统而非外部 oracle 检测到不匹配；状态仍为 `WAITING_APPROVAL`；工具断点未命中；`effect_count=0`。仅出现异常或退出码 0 都不充分。
+
+## 证据解释与上限
+
+这是 **L3_CONTAINED**：检测并约束过期审批，但没有恢复业务目标，因此不是 L4。测试的是单机 Runtime 合同，不证明跨服务授权链或分布式 fencing。
+
+## 进阶实验
+
+分别注入正确 action ID/错误 run ID、正确身份/已过期批准、相同 action/不同参数摘要；制作二维矩阵，要求仅精确绑定且未过期的一格允许效果。

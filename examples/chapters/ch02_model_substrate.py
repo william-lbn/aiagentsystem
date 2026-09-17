@@ -4,7 +4,7 @@ from agentlab.course_scenarios import run_scenario
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="模型基座：Token、结构化生成、工具调用与推理接口")
+    p = argparse.ArgumentParser(description="模型基座：概率生成、结构化决策与工具调用边界")
     p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
     args = p.parse_args()
     result = run_scenario("model-substrate", fault=args.fault)

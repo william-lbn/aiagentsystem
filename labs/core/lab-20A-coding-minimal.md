@@ -1,52 +1,37 @@
-# Lab 20A — Coding Agent 最小实现：读、改、测、验证｜正常路径
+# Lab 20A — 最小 Coding Agent：补丁通过独立验证｜正常路径
 
 ## 实验目标
 
-验证不变量：**a code change is complete only when an external verifier proves the requested behavior**
+对真实 `calc.py` 应用受范围约束的补丁，在隔离 Python 子进程执行两个行为断言，仅在退出码 0 时保留修改。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；macOS/Linux；ARM64/x86_64；
+- `CodingWorkspace`、真实文件、`subprocess.run`；
+- 无模型、容器/API key；证据上限 `L1_MECHANISM`。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch20_coding_minimal.py`；核心机制：`src/agentlab/course_scenarios.py::coding_minimal`。
-
-本实验输入由 `coding_minimal` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::coding_minimal`
-- `examples/chapters/ch20_coding_minimal.py::main`
-
-## 实验 A：正常路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch20_coding_minimal.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a code change is complete only when an external verifier proves the requested behavior", "invariant_holds": true, "observation": {"diff": "def add(a,b):\n    return a+b", "file": "/tmp/agentlab-code-su79vkaw/calc.py", "result": 5}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "coding-minimal", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"observation":{"accepted":true,"changed_files":["calc.py"],"diff_sha256":"bccfb8a58c315cd1","returncode":0,"rolled_back":false,"verifier_stdout":"2 passed","workspace_restored":false},"passed":true,"scenario":"coding-minimal"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+观察 allowed-files gate、唯一 preimage、unified diff、最小子进程 env/cwd、returncode 与 accept 分支。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+`accepted=true`、`returncode=0`、stdout 为 `2 passed`、变更仅 `calc.py` 且不回滚。

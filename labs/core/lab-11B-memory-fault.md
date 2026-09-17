@@ -1,52 +1,37 @@
-# Lab 11B — 长期记忆：从聊天历史到可治理的用户状态｜故障注入
+# Lab 11B — 等等级冲突与跨租户记忆污染｜故障注入
 
 ## 实验目标
 
-验证不变量：**long-term memory needs provenance/confidence and conflict resolution, not append-only chat history**
+在可信 `mem-zh=zh-CN` 旁注入同 tenant、同 authority/confidence 但值为 `en-US` 的记录，并加入 tenant B 的 `secret`。Last-write-wins 会给出虚假确定答案；正确 resolver 必须隔离跨租户并对同等级冲突 abstain。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13，macOS/Linux、arm64/x86_64；无网络/API key，使用与 Lab 11A 相同的双时态 store。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；冲突和跨租户记忆是显式 fixture，实验不调用信息抽取模型。
 
 ## 实验代码
-
-入口：`examples/chapters/ch11_memory.py`；核心机制：`src/agentlab/course_scenarios.py::memory`。
-
-本实验输入由 `memory` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::memory`
-- `examples/chapters/ch11_memory.py::main`
-
-## 实验 B：故障注入路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch11_memory.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "long-term memory needs provenance/confidence and conflict resolution, not append-only chat history", "invariant_holds": true, "observation": {"candidates": [{"confidence": 0.98, "key": "preferred_language", "kind": "semantic", "value": "zh-CN"}, {"confidence": 0.2, "key": "preferred_language", "kind": "semantic", "value": "en-US"}], "chosen": {"confidence": 0.98, "key": "preferred_language", "kind": "semantic", "value": "zh-CN"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "memory", "system_detected": true}
+{"contained":true,"evidence_level":"L3_CONTAINED","fault":true,"invariant_holds":true,"observation":{"candidates":["mem-conflict","mem-zh"],"quarantined":{"mem-conflict":"unresolved_equal_rank_conflict","mem-foreign":"tenant_mismatch","mem-zh":"unresolved_equal_rank_conflict"},"selected":null,"value":null},"oracle_detected":true,"passed":true,"scenario":"memory","system_detected":true}
 ```
 
-### 验收标准
+## 验收标准
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+`selected/value` 均必须为空；跨租户与同租户冲突必须给出不同 reason。由于任何污染值都未投影给下游模型，证据为 L3。
 
-### 进阶修改
+## 调试断点
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+在 scope filter 确认 `mem-foreign` 不进入 candidates；在 rank comparator 确认两个合法记录完全同级；在 conflict gate 确认它比较 value 并返回 abstention。随后给新记录加入显式 `supersedes` 和更高 authority，设计受控消歧分支。
+
+## Claim ceiling
+
+实验没有测 memory extraction 模型。若接入小模型/OpenAI 抽取器，输出只能写 candidate queue；需另测 extraction precision、PII、否定和时间解析。

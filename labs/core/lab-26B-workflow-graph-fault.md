@@ -1,52 +1,36 @@
-# Lab 26B — Graph Runtime：LangGraph / ADK / MAF 的共同抽象｜故障注入
+# Lab 26B — Graph Topology 漂移阻断｜故障注入
 
 ## 实验目标
 
-验证不变量：**durable workflow recovery depends on persisted graph state, not prompt memory**
+用改变节点序列后的 graph 实例恢复旧 run，验证 topology signature mismatch 在任何 `apply` effect 前被拒绝。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 26A 相同。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch26_workflow_graph.py`；核心机制：`src/agentlab/course_scenarios.py::workflow_graph`。
+```bash
+python examples/chapters/ch26_workflow_graph.py --fault
+```
 
-本实验输入由 `workflow_graph` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+实际输出：
+
+```json
+{"process_boundary":"close_reopen_sqlite","history":["collect","approve"],"final_node":null,"effect_count":0,"error":"graph_signature_mismatch","evidence_level":"L3_CONTAINED","passed":true}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::workflow_graph`
-- `examples/chapters/ch26_workflow_graph.py::main`
+在 `DurableGraph.resume` 的 persisted/current signature compare 停下；确认异常发生后 effects 表仍为空。
 
-## 实验 B：故障注入路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch26_workflow_graph.py --fault
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "durable workflow recovery depends on persisted graph state, not prompt memory", "invariant_holds": false, "observation": {"checkpointed": [], "graph": {"analyze": ["approve"], "apply": ["verify"], "approve": ["apply"], "collect": ["analyze"], "verify": []}, "resumable": false}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "workflow-graph", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
-
-### 进阶修改
-
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0、拓扑错误被系统检测、`effect_count=0`、`contained=true`。实验未执行 graph migration，也不证明分布式 checkpoint durability。

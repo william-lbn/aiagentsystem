@@ -1,16 +1,17 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Repo map",fillcolor="#edf5ff"];
-n2 [label="Patch",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Test",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.32",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+issue [label="Issue / Specification\nBase Commit",fillcolor="#fff4e6"];
+agent [label="Coding Policy\n定位与补丁 Proposal",fillcolor="#fff4e6"];
+workspace [label="Scoped Workspace\nPreimage · Diff · Digest",fillcolor="#edf5ff"];
+sandbox [label="Isolated Child Process\nMinimal Env · Timeout",fillcolor="#fdecea"];
+verifier [label="Tests / Static / Security\nIndependent Oracle",fillcolor="#f6efff"];
+artifact [label="Accepted Patch + Evidence\n或 Restored Workspace",fillcolor="#eef9f1"];
+issue->agent;
+agent->workspace;
+workspace->sandbox [label="patched state"];
+sandbox->verifier;
+verifier->artifact [label="exit + report"];
+artifact->agent [label="失败诊断",style=dashed];
 }

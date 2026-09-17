@@ -231,7 +231,17 @@ def compat_book():
 def rewrite_site_links(text: str, src: Path) -> str:
     # Link-only normalization; Markdown interpretation stays entirely in Pandoc.
     text = re.sub(r"\]\(\.\./\.\./\.\./labs/core/(lab-[^)]+)\.md\)", r"](../labs/\1.html)", text)
+    text = text.replace("](../../../labs/upstream/", "](../labs/upstream/")
     text = re.sub(r"\]\(\.\./(appendix-[^)]+)\.md\)", r"](../appendices/\1.html)", text)
+    # Source links use the Quarto layout, where chapters and appendices remain
+    # siblings under book/zh.  The compatibility site flattens them into the
+    # chapters/ and appendices/ directories, so only that renderer rewrites the
+    # published HTML target.  Keep anchors intact.
+    text = re.sub(
+        r"\]\(\.\./(appendix-[^#)]+)\.html(#[^)]+)?\)",
+        lambda match: f"](../appendices/{match.group(1)}.html{match.group(2) or ''})",
+        text,
+    )
     text = text.replace("](../../../evidence/", "](../evidence/")
     text = text.replace("](../../../experiments/", "](../experiments/")
     text = text.replace("](../../../.github/workflows/", "](../workflows/")
@@ -240,6 +250,10 @@ def rewrite_site_links(text: str, src: Path) -> str:
 
 def export_site_support(out: Path):
     """Publish only the public, secret-scrubbed evidence referenced by chapters."""
+    # Upstream contracts are intentionally Markdown evidence documents rather
+    # than pages counted as Core Labs.  Copying them keeps both compatibility
+    # and canonical site layouts self-contained without inflating lab counts.
+    shutil.copytree(ROOT / "labs/upstream", out / "labs/upstream", dirs_exist_ok=True)
     shutil.copytree(ROOT / "evidence/l5", out / "evidence/l5", dirs_exist_ok=True)
     shutil.copytree(ROOT / "evidence/benchmarks", out / "evidence/benchmarks", dirs_exist_ok=True)
     (out / "docs").mkdir(parents=True, exist_ok=True)

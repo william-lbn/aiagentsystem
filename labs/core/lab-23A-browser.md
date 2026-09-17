@@ -1,52 +1,36 @@
-# Lab 23A — Browser / Computer Use Agent：观察、动作与环境验证｜正常路径
+# Lab 23A — HTTP 观察—动作—后置状态闭环｜正常路径
 
 ## 实验目标
 
-验证不变量：**computer-use actions must be grounded in the current observation before execution**
+启动真实 loopback HTTP 服务，通过 GET 解析 observation，再以绑定 revision 的 POST 执行动作，验证服务端状态和 effect count。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13 标准库 `http.server/urllib/html.parser`；需允许绑定 `127.0.0.1` 临时端口；不访问外网。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch23_browser.py`；核心机制：`src/agentlab/course_scenarios.py::browser`。
+```bash
+python examples/chapters/ch23_browser.py
+```
 
-本实验输入由 `browser` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+实际输出：
+
+```json
+{"transport":"loopback_http","observed_revision":1,"observed_targets":["approve"],"server_revision":2,"server_status":"APPROVED","effect_count":1,"evidence_level":"L1_MECHANISM","passed":true}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::browser`
-- `examples/chapters/ch23_browser.py::main`
+停在 `_TaskPageParser.handle_starttag`、`LocalBrowserTask.act` 与 handler `do_POST`；区分目标 grounding、HTTP receipt 和 server postcondition。
 
-## 实验 A：正常路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch23_browser.py
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "computer-use actions must be grounded in the current observation before execution", "invariant_holds": true, "observation": {"action": {"target": "approve", "type": "click"}, "observation": {"buttons": [["approve", "Approve"]], "status": "WAITING"}, "valid_target": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "browser", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
-
-### 结果解释
-
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；只产生一次 effect；状态从 WAITING 变为 APPROVED。它是真实 HTTP/HTML 实验，但不是 JavaScript 浏览器或 WebArena/OSWorld benchmark。

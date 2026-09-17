@@ -1,354 +1,232 @@
 # Multi-Agent 协作：分工、隔离、调度与成本
 
-> **本章核心判断**：多 Agent 的价值来自专业化、并行和隔离；风险来自竞态、上下文污染、重复工作和成本爆炸。
+> **本章核心判断**：多 Agent 的价值不来自“角色数量”，而来自可验证的任务分解、受限信息投影、明确所有权、预算守恒和独立 join。若所有 worker 共享全量上下文与权限，再让 supervisor 用自然语言汇总，系统只是把单 Agent 的不确定性放大为并发的不确定性。
 
-上一章：A2A 与 Multi-Agent 互操作。本章把前一章已经建立的能力进一步推进到 `Supervisor`；下一章将进入：Agent Evaluation：从最终答案到轨迹验证。
+上一章解决远端 Agent 间的协议边界；本章解决一个目标被多个执行体共同推进时的控制面。下一篇将把这些轨迹放进 evaluation、benchmark、observability、安全与恢复体系。
 
-![Multi-Agent 协作：分工、隔离、调度与成本：系统边界与组件关系](../../assets/diagrams/28-multi-agent-architecture.svg)
+![Multi-Agent 的任务图、权限、预算与验证边界](../../assets/diagrams/28-multi-agent-architecture.svg)
 
 ## 问题背景与学习目标
 
-多 Agent 的价值来自专业化、并行和隔离；风险来自竞态、上下文污染、重复工作和成本爆炸。
+“researcher、coder、reviewer 轮流发言”不是系统架构。真正的多 Agent 协作必须回答：谁拥有哪个 work order？每个 worker 看到哪些输入、持有哪些能力？哪些任务可并行？预算在并发 claim 时会不会超卖？部分失败后怎样重试？最终输出由谁验证？发布 effect 会不会执行两次？
 
-在本章的 `Supervisor` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章完成后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“多 Agent 的价值来自专业化、并行和隔离；风险来自竞态、上下文污染、重复工作和成本爆炸。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `multi-agent specialization requires explicit ownership and context isolation` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 28A` / `Lab 28B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 用任务 DAG、owner、capability、input projection 与 artifact contract 描述协作，而不是只写角色 prompt；
+- 区分 manager-as-tools、handoff、deterministic workflow、blackboard 与市场式调度；
+- 解释并行收益何时被通信、重复工作、冲突和验证成本抵消；
+- 实现原子预算预留、依赖 frontier、owner/scope 检查与 exactly-once effect key；
+- 设计能发现串谋、同源错误、上下文泄漏和 supervisor bottleneck 的评测。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：任何 work order 只有认证 identity 与 owner 相符、能力覆盖 required scope、依赖完成且原子预算预留成功时才能执行；最终 effect 还必须通过 exact-task-set join 并由稳定 key 去重。
 
-### Supervisor
+**Work order 是最小可审计委派单元。** 它至少包含 task ID、owner、输入引用、输出 schema、依赖、required scope、最大成本、deadline 与 verifier。自然语言目标可以附带，但不能替代这些字段。
 
-**定义。** 负责拆解、分配、预算、冲突处理和最终集成的协调角色，而不是天然更聪明的“总 Agent”。
+**Owner 表示责任归属，不是“谁先抢到”。** 一个任务可以由 scheduler 重新分配，但任何时刻只有一个有效 lease/owner。worker 的名称不构成身份；运行时必须用已认证 identity 检查 claim 和 completion。
 
-**系统责任。** Supervisor 应根据 worker 能力/成本/权限路由任务，并使用 verifier 合并结果，避免只比较自然语言自信度。
+**Context projection 是信息流控制。** Researcher 只需要 `source:policy`，Coder 只需要 `repo:workspace`。把完整用户历史、秘密、别的 worker scratchpad 全部广播，不仅增加 token，还扩大 prompt injection、隐私和错误耦合面。
 
-**失败边界。** supervisor 自己成为上下文/决策瓶颈时，多 Agent 只增加 token 和延迟；单点错误还会同时放大到所有 worker。
+**Frontier 是所有依赖已满足的 READY 任务集合。** 可并行不等于应该无限并行。scheduler 还需考虑预算、速率限制、资源冲突、风险与下游 join 的等待时间。
 
-### Worker
-
-**定义。** 在受限上下文、权限和任务契约下执行子任务的 Agent 实例。
-
-**系统责任。** Worker 的价值来自专业化、并行或隔离；其输出应是结构化 artifact/claim/state delta，而非无限自由聊天。
-
-**失败边界。** 任务边界不清会重复劳动或产生冲突 effect；给所有 worker 全量秘密和权限会扩大攻击面。
-
-### Blackboard
-
-**定义。** 多个 Agent 共享事实、任务状态和中间 artifact 的协调存储，而不是公共聊天窗口。
-
-**系统责任。** Blackboard 需要 schema、ownership、version/provenance 与冲突策略，使并行 worker 可以读取稳定事实而不是互相覆盖。
-
-**失败边界。** 无并发控制的共享 memory 会产生 lost update、过期事实和错误传播；任何 worker 都可写“最终结论”则容易污染全局。
-
-### Fan‑in/Fan‑out
-
-**定义。** 把可并行子任务分发给多个 worker，再通过验证和聚合收敛到下一状态的执行模式。
-
-**系统责任。** Fan‑out 适合独立搜索/分析， fan‑in 必须定义 dedup、conflict resolution、quorum 或 verifier，而非简单拼接回答。
-
-**失败边界。** 并行度超过任务独立性后会产生协调成本、重复工具调用和 rate limit；错误 fan‑in 还会把互相矛盾的结果同时保留。
+**Join 是独立状态转移。** 它不是 supervisor 写一段更顺的总结，而是检查 expected task set、完成状态、artifact digest、schema、冲突和业务 verifier 后，才允许产生最终 effect。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：multi-agent specialization requires explicit ownership and context isolation
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `多个 agent 互相说服而非验证` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “多个 agent 互相说服而非验证”、“所有上下文共享”、“失败 worker 阻塞全局” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Supervisor** 与 **Worker** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“多个 agent 互相说服而非验证”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Supervisor 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Worker 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `共享状态有 schema`、`合并结果有 verifier` 以及对不变量 **multi-agent specialization requires explicit ownership and context isolation** 的检查。
-
-**What if。** 一旦“所有上下文共享”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+设任务图为有向无环图 $G=(V,E)$，任务 $i$ 的最大资源需求为 $c_i$，全局预算为 $B$。任一时刻的预留必须满足：
 
 $$
-U=\sum Gains-CoordinationCost-ConflictCost-EffectRisk
+\sum_{i\in Claimed\cup Completed} reserved_i \le B
 $$
 
-Multi-Agent 的价值必须扣除协调、冲突和副作用风险；更多 Agent 并不单调提升系统质量。
+这项约束必须在原子 transaction 内检查和更新；先读取余额、后分别写入的并发实现会发生 budget oversubscription。
 
-**可证伪假设。** 在紧耦合任务中，worker 数增加会出现收益递减甚至负收益；显式资源仲裁可改善结果。
+对 work order $w_i$，可执行条件为：
 
-**建议测量。** speedup、coordination overhead、conflict rate、deadlock rate、cost per success。
+$$
+Ready(i)\land Identity(a)=Owner(i)\land Scope(i)\subseteq Cap(a)
+\land Budget(i)\land LeaseValid(i)
+$$
+
+完成条件则额外要求 artifact 满足 contract。全局完成不是“所有 worker 都说完成”，而是：
+
+$$
+Complete(run)=ExactTaskSet\land \bigwedge_i Verified(A_i)
+\land JoinInvariant\land EffectReceipt
+$$
+
+多 Agent 是否值得，还需比较实际 makespan：
+
+$$
+T_{multi}\approx \max(T_{parallel})+T_{coord}+T_{join}+T_{conflict}+T_{verify}
+$$
+
+当协调、冲突和验证成本大于被并行化的关键路径，多 Agent 反而更慢、更贵。增加角色数量不是单调改进。
 
 ## 关键机制与执行流程
 
-![Multi-Agent 协作：分工、隔离、调度与成本：正常路径与故障恢复流程](../../assets/diagrams/28-multi-agent-flow.svg)
+![Multi-Agent 从任务图到幂等发布的执行与拒绝路径](../../assets/diagrams/28-multi-agent-flow.svg)
 
-**Step 1 — 共享状态有 schema。** `共享状态有 schema` 是“Multi-Agent 协作：分工、隔离、调度与成本”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Supervisor` 是否仍满足 **multi-agent specialization requires explicit ownership and context isolation**。
+1. **编译任务图**：验证 task ID 唯一、依赖存在且无环，固定 expected task set；
+2. **投影上下文**：为每个 work order 生成最小 `input_refs`，秘密由运行时按能力临时取用；
+3. **计算 frontier**：只有依赖全部 COMPLETED 的 READY task 可 claim；
+4. **原子 claim**：在同一 transaction 中检查 owner、scope、status、依赖和预算并写入 CLAIMED；
+5. **提交 artifact**：completion 必须来自 owner，写入 canonical digest；失败任务不得伪装成空 artifact；
+6. **验证 join**：expected task set 完全一致、所有 artifact 可用、冲突已处理，才创建发布 receipt；
+7. **幂等 effect**：`(run_id,effect_key)` 唯一，恢复或重复 join 不增加 effect count。
 
-**Step 2 — agent 角色边界明确。** `agent 角色边界明确` 是“Multi-Agent 协作：分工、隔离、调度与成本”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Worker` 是否仍满足 **multi-agent specialization requires explicit ownership and context isolation**。
-
-**Step 3 — 并行受预算控制。** `并行受预算控制` 是“Multi-Agent 协作：分工、隔离、调度与成本”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Blackboard` 是否仍满足 **multi-agent specialization requires explicit ownership and context isolation**。
-
-**Step 4 — 合并结果有 verifier。** `合并结果有 verifier` 会改变信息或控制流的形态，因此必须说明哪些信息允许丢弃、哪些顺序必须保持、哪些状态不能合并。调试时记录变换前后的摘要与原因，确保 `Fan-in/Fan-out` 的关键状态在优化后仍满足 **multi-agent specialization requires explicit ownership and context isolation**。
-
-在本章的 `Supervisor` 场景中，**最后一步 — 验证。** verifier 针对 `Fan-in/Fan-out` 检查本章不变量 **multi-agent specialization requires explicit ownership and context isolation**。如果“多个 agent 互相说服而非验证”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **共享状态有 schema → agent 角色边界明确 → 并行受预算控制 → 合并结果有 verifier** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“多个 agent 互相说服而非验证”尤其要检查动作前后的证据是否足以闭合不变量 **multi-agent specialization requires explicit ownership and context isolation**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Supervisor` 有关的纯计算状态通常可以重算；一旦 `agent 角色边界明确` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **multi-agent specialization requires explicit ownership and context isolation**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+Scheduler 决定“何时/谁可执行”，模型决定“如何解决开放子问题”。把权限、预算或完成性留给模型自述，会让不可验证判断进入控制面。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Multi-Agent 协作：分工、隔离、调度与成本')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('multi-agent', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+本章使用三个有真实依赖的 work order：研究和修改可并行，验证必须等待两者：
 
 ```python
-def multi_agent(fault=False):
- contexts={'researcher':['source:a'],'coder':['repo:x']}
- if fault: contexts['coder'].extend(contexts['researcher'])
- isolated=set(contexts['researcher']).isdisjoint(contexts['coder'])
- tasks={'researcher':'collect evidence','coder':'implement patch'}
- return _ok('multi-agent',fault,{'contexts':contexts,'tasks':tasks,'isolated':isolated},'multi-agent specialization requires explicit ownership and context isolation',isolated if not fault else not isolated)
+orders = (
+    WorkOrder("research", "researcher", "sources.read", 3, ("source:policy",)),
+    WorkOrder("patch", "coder", "repository.write", 4, ("repo:workspace",)),
+    WorkOrder(
+        "verify",
+        "reviewer",
+        "artifacts.verify",
+        2,
+        ("artifact:research", "artifact:patch"),
+        ("research", "patch"),
+    ),
+)
+coordinator.create_run("run-28", budget_limit=9, orders=orders)
+assert coordinator.ready("run-28") == ("patch", "research")
 ```
 
+`claim` 在 SQLite `BEGIN IMMEDIATE` 中完成检查和预算预留，错误 owner 即使持有同名 scope 也不能取得 work order：
 
-### 简化假设与不能省略的机制
+```python
+research = coordinator.claim(
+    "run-28",
+    "research",
+    agent="researcher",
+    scopes={"sources.read"},
+)
+assert research["input_refs"] == ("source:policy",)
 
+receipt = coordinator.join(
+    "run-28",
+    expected_tasks=("research", "patch", "verify"),
+    effect_key="publish-28",
+)
+```
+
+实现位于 `src/agentlab/coordination_system.py`。它使用真实 SQLite durability 与唯一约束，但 worker 的语义输出是固定 fixture；因此实验能够证明调度不变量，不能证明某个 LLM 的研究、代码或协作质量。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| Google Agent Development Kit | `v2.1.0 @ 6d15e19` | 比较 LlmAgent 与 Sequential/Parallel/Loop/graph workflow，把 session、sandbox、telemetry/evaluation 放在同一 runtime 视角下。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/google/adk-python) |
-| LangGraph | `langgraph==1.2.11 @ 644815f` | 从 StateGraph/CompiledGraph 与 checkpointer 语义入手，观察 node/edge/state/pending writes 如何支持 interrupt、resume 与 fault tolerance。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/langchain-ai/langgraph) |
-| Anthropic: Building Effective Agents | `official engineering article` | 从简单、可组合的 workflow/agent 模式开始。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/building-effective-agents) |
+| 系统/模式 | 控制语义 | 应重点审计的公开机制 | 本章证据边界 |
+|---|---|---|---|
+| [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | manager-as-tools、handoff、Python orchestration | 谁拥有最终回复、handoff input filter、session、approval、trace | 已有 SDK durable run evidence；本章未宣称云模型协作分数 |
+| [Google ADK](https://github.com/google/adk-python) | LLM Agent 与 Sequential/Parallel/Loop/custom workflow | session/event、shared state、workflow agent、remote boundary | 已有 pinned session/event L5；需单独评测任务语义 |
+| [LangGraph](https://github.com/langchain-ai/langgraph) | StateGraph、subgraph、checkpoint、interrupt | reducer、pending writes、subgraph namespace、resume | 已有 graph resume L5；不是权限/预算证明 |
+| [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | agents、workflow、executor/superstep | edge、checkpoint、concurrency、hosting/replay | 已有 scoped checkpoint evidence；版本不可混用 |
+| [A2A](https://github.com/a2aproject/A2A) | 跨进程任务协议 | discovery、Task/Event/Artifact、auth hook | 解决互操作，不替代本地 scheduler 与业务 join |
 
-### 源码阅读方法
-
-源码阅读以 **Google Agent Development Kit** 为第一参照，并只追与“Multi-Agent 协作：分工、隔离、调度与成本”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“多个 agent 互相说服而非验证”、如何在“所有上下文共享”后恢复，以及如何让 `合并结果有 verifier` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+OpenAI Agents SDK 的官方文档明确区分 manager 调用 agent-as-tool 与 handoff：前者由 manager 保持会话和最终答案所有权，后者由 specialist 接管。这个差异会改变 history、guardrail、approval 和用户可见责任链，不能只当两种 prompt 写法。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 模式 | 最适合 | 主要风险 | 必须存在的控制 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| Google Agent Development Kit | 状态/工作流抽象成熟，适合长任务与治理 | 框架状态不能自动解决外部副作用不确定性 | 企业 workflow、HITL、durable orchestration |
-| LangGraph | 状态/工作流抽象成熟，适合长任务与治理 | 框架状态不能自动解决外部副作用不确定性 | 企业 workflow、HITL、durable orchestration |
-| Anthropic: Building Effective Agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| Manager / agents-as-tools | 汇总多个 bounded specialist 输出 | manager bottleneck、遗漏冲突 | structured outputs、per-tool budget、final verifier |
+| Handoff | 路由后由专家直接负责用户交互 | context/authority 随控制权漂移 | input filter、目标白名单、handoff audit |
+| Deterministic DAG | 合规、数据管道、发布流程 | 灵活性较低、图迁移复杂 | checkpoint、schema/version、effect journal |
+| Blackboard | 多方迭代共享中间事实 | 脏写、错误级联、秘密扩散 | typed record、ACL、version/CAS、provenance |
+| Debate / critic | 高价值、可验证判断 | 同源模型相关错误、成本倍增 | 独立证据、角色隔离、外部 judge |
+| Market / auction | 大规模异构 worker 分配 | 报价操纵、质量难比较 | identity、escrow/budget、reputation、objective verifier |
 
+架构选择首先看 ownership 与失败代价。若一个确定性程序就能可靠完成，不应为了“更 agentic”拆成多个模型；若子任务真正独立、需要不同工具/权限/模型且可分别验证，多 Agent 才可能产生净收益。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Multi-Agent 协作：分工、隔离、调度与成本”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Multi-Agent 协作：分工、隔离、调度与成本”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 28A — 正常路径
+### Lab 28A — 持久调度、最小上下文与幂等 join
 
 ```bash
 PYTHONPATH=src python examples/chapters/ch28_multi_agent.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::multi_agent`
-- `examples/chapters/ch28_multi_agent.py::main`
-
-**本发布包实际输出：**
+**实际输出。** 本发布源码的关键结果如下：
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "multi-agent specialization requires explicit ownership and context isolation", "invariant_holds": true, "observation": {"contexts": {"coder": ["repo:x"], "researcher": ["source:a"]}, "isolated": true, "tasks": {"coder": "implement patch", "researcher": "collect evidence"}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "multi-agent", "system_detected": false}
+{"initial_frontier":["patch","research"],"join_frontier":["verify"],"context_projection":{"coder":["repo:workspace"],"researcher":["source:policy"]},"snapshot":{"status":"COMPLETED","budget_limit":9,"budget_reserved":9},"effect_count":1,"idempotent_replay":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 28A](../../../labs/core/lab-28A-multi-agent.md)。
+实验真实写入 SQLite、关闭并重开，重复执行 join 后 effect count 仍为 1。完整环境、关键断点和验收见 [Lab 28A](../../../labs/core/lab-28A-multi-agent.md)。
 
-### Lab 28B — 故障注入
+**关键断点与验收。** 在 `claim()` 的 owner/scope/预算检查后、`complete()` 写入 artifact digest 后，以及 `join()` 创建 effect receipt 前分别停下：前两个任务完成后 frontier 必须严格等于 `("verify",)`；重开数据库后预算预留仍为 9；同一 `effect_key` 连续 join 两次仍只有一条 receipt。任一条件不成立，都说明实验没有证明依赖门控、durability 或幂等发布中的至少一项。
+
+### Lab 28B — 所有权混淆故障注入
 
 ```bash
 PYTHONPATH=src python examples/chapters/ch28_multi_agent.py --fault
 ```
 
-**本发布包实际输出：**
+故障让 `coder` 携带 `sources.read` 尝试 claim `researcher` 的任务；scope 看似足够，但 identity/owner 不匹配：
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "multi-agent specialization requires explicit ownership and context isolation", "invariant_holds": false, "observation": {"contexts": {"coder": ["repo:x", "source:a"], "researcher": ["source:a"]}, "isolated": false, "tasks": {"coder": "implement patch", "researcher": "collect evidence"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "multi-agent", "system_detected": false}
+{"rejected":"work_order_owner_mismatch","snapshot":{"status":"RUNNING","budget_reserved":0,"tasks":{"patch":"READY","research":"READY","verify":"READY"}},"effect_count":0,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 28B](../../../labs/core/lab-28B-multi-agent-fault.md)。
+事务 rollback 后预算未扣、任务未 claim、发布 effect 为零，因此证据是 L3 containment。完整步骤见 [Lab 28B](../../../labs/core/lab-28B-multi-agent-fault.md)。
 
-### 观察与证据
-
+**实验语义边界。** 该实验不调用模型，也不声称三个模型真的并行工作；它执行的是多 Agent 系统最容易被 demo 隐藏的控制面。模型质量需在第 29–30 章的固定任务、预算和 verifier 下另测。
 
 ## 工程场景与系统设计
 
-**教学工程设计输入（不是公开云厂商性能数据）：** 研究与实现任务拆给多个专长 Agent，再由 supervisor 合并证据和产物。设计输入：fan-out 上限 6、全局 token 预算、任务 DAG 无环、共享 artifact 通过对象存储而不是 prompt 复制。
+以“研究政策变化并修改合规代码”为例，Researcher 得到锁定官方来源和只读网络，Coder 得到独立 worktree 与测试命令，Reviewer 只读取两类 artifact 和验收规则。两个前置任务同时进入 frontier，但各自 secret、工具和上下文互不可见；Reviewer 未完成前，publish task 不存在可执行路径。
 
-
-### 上线前必须补齐
-
-- 围绕 **Multi-Agent 协作** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `多 Agent 的难点不是数量，而是协调、隔离、成本和重复工作。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+小型开源模型适合分类、抽取、轻量 reviewer 或离线回归，可通过附录 A 的本地 OpenAI-compatible endpoint 使用；高难研究/代码任务可选更强本地模型或 OpenAI Responses/Agents SDK。教程不硬编码“最新模型名”，运行时从环境变量选择 provider/model，key 不进入 prompt、SQLite、artifact 或 trace。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **所有权混淆**：认证 identity 与 owner 不同即拒绝，不允许“有 scope 就代做”；
+- **预算超卖**：claim 的检查与预留必须原子化，拒绝读后写竞态；
+- **依赖绕过**：frontier 由 durable status 计算，不相信 worker 自报“前置已完成”；
+- **上下文串线**：输入只用 typed reference，artifact/secret 按任务 ACL 解引用；
+- **重复 completion**：任务状态与 lease/version 共同检查，旧 worker 不能覆盖新 owner；
+- **虚假共识**：同源模型多次赞成不等于独立证据，verifier 读取 artifact 和环境事实；
+- **Join 漏项**：固定 expected task set，禁止只对“已返回的那些结果”求和；
+- **发布重放**：稳定 effect key 与 receipt 唯一约束，恢复后先查询再重试。
 
-- **多个 agent 互相说服而非验证**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **所有上下文共享**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **失败 worker 阻塞全局**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错顺序是任务图/版本 → owner/lease → scope/input projection → budget ledger → artifact digest → join decision → effect receipt。先读最终聊天会掩盖控制面错误。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+应同时记录成功率、verified task completion、critical-path latency、token/tool/currency cost、fan-out、queue time、duplicate work、conflict rate、join rejection、context bytes、secret exposure attempts 和 human escalation。只报告总 token 或 wall time无法解释并行是否有效。
 
-- `fan-out width`
-- `duplicate-work ratio`
-- `handoff latency`
-- `context isolation violations`
-- `critical-path latency`
-- `cost amplification`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Worker` 的生命周期时，要重新验证 **multi-agent specialization requires explicit ownership and context isolation**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “多个 agent 互相说服而非验证”、“所有上下文共享”、“失败 worker 阻塞全局”：只有正常路径与对应 fault path 都保持 **multi-agent specialization requires explicit ownership and context isolation**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+并行度上限应由关键路径、provider rate limit、workspace 资源和预算共同决定。可先对任务图做静态上界，再用运行时 semaphore/queue 限制；高风险 effect task 通常串行并设置 approval。任务 artifact 采用 content-addressed store，scheduler 只保存引用和 digest，避免把大输出复制进每个 Agent 的 context。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 增加 Agent 数量不会自动增加正确性，可能只增加通信与成本
-- 共享记忆会引入污染和竞态，完全隔离又会损失协同
-- 跨组织 A2A 不能默认信任 Agent Card、message 或 artifact
-- 分布式协调仍受超时、重试、重复消息和部分失败影响
+Core Lab 是单进程 SQLite，没有真实 lease timeout、分布式共识、消息队列或 worker crash。`BEGIN IMMEDIATE` 足以证明单数据库内的预算原子性，不代表跨数据库全局预算。输入引用只是 namespace 演示，不是操作系统 sandbox 或云 IAM。
 
-选择方案时要回到本章边界：如果业务不能接受“多个 agent 互相说服而非验证”，就必须为 `Supervisor` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Worker` 决策交给模型，但要用 `合并结果有 verifier` 保持结果可验证。**Google Agent Development Kit** 与 **LangGraph** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Multi-Agent 增加分工能力，也增加消息放大、权限转移和错误传播路径。若无法界定每个 Agent 的职责、资源预算和可验证交付物，多 Agent 往往只是把单 Agent 的不确定性扩散到网络。
+更复杂的“自治社会”还会引入声誉、协商、动态拓扑和涌现行为，但复杂度不能替代可证伪目标。生产默认应从最少 Agent、最少权限和最短图开始，只有固定评测显示质量/延迟收益超过协调成本时才增加节点。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+重要问题包括：动态 team formation 如何保持授权链；基于能力/成本/风险的 scheduler 如何避免选择偏差；多个同源基础模型的相关错误如何估计；Agent 间 communication topology 怎样影响信息压缩与错误传播；如何用 causal attribution 判断哪个 worker 真正贡献了改进。
 
-- **[AgentBench: Evaluating LLMs as Agents](https://arxiv.org/abs/2308.03688)**：多环境 Agent benchmark，推动从答案评估转向交互任务评估。
-- **[Google Agent Development Kit](https://github.com/google/adk-python)**（v2.1.0 @ 6d15e19）：Agent、workflow、sandbox、telemetry、evaluation/deployment 参考实现。
-- **[LangGraph](https://github.com/langchain-ai/langgraph)**（langgraph==1.2.11 @ 644815f）：状态图、durable execution、checkpointer、HITL、pending writes/fault tolerance。
+多 Agent benchmark 也必须从“角色表演”转向机制测量：在相同模型调用预算下比较单 Agent 与团队；改变拓扑但保持工具/数据不变；注入恶意 worker、陈旧 artifact、预算竞态和部分失败；用独立环境 verifier 衡量结果，而不是让 supervisor 自评。
 
+### 深度审计与研究证据链
 
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- Anthropic: Patterns and problems in emerging multiagent systems（2026‑08‑13）： multi‑agent interaction risks, institutions, scale and oversight。
-- MultiAgentBench（arXiv 2503.01935; observed 2026‑09‑10）：multi‑agent。
-
-- DPBench（arXiv 2602.13255）：显示带共享资源与同步条件的多 Agent 任务会出现严重 coordination/deadlock 问题，说明自然语言协商不能替代外部协调器。
-**本章吸收的变化。** 多 Agent 只有在专业化/并行收益超过协调、上下文复制与冲突成本时才有价值；“更多 agent”不是单调增益。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Supervisor`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **multi-agent specialization requires explicit ownership and context isolation** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“多个 agent 互相说服而非验证”和“所有上下文共享”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Multi-Agent 协作** 的可验证性。MultiAgentBench、DPBench、MAFBench 都显示架构选择会显著影响协调成功率和延迟。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Supervisor` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“多个 agent 互相说服而非验证”与“所有上下文共享”同时发生时，**Google Agent Development Kit** 与 **LangGraph** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Worker` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“失败 worker 阻塞全局”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Multi-Agent 协作
-
-本章重新审计后的核心结论是：**多 Agent 的难点不是数量，而是协调、隔离、成本和重复工作。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28)**：引入 stateless/self-contained request 与更明确的 tools/resources/prompts 边界。
-- **[A2A Protocol](https://github.com/a2aproject/A2A)**：把 Agent Card、task、artifact、streaming/push 作为互操作对象。
-- **[AIP](https://arxiv.org/abs/2603.24775)**：指出 MCP/A2A 互操作之外仍缺少可验证委托身份链。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。ADK multi-agent、MAF workflows、LangGraph supervisors 可对照拓扑与状态共享。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Multi-Agent 协作的 workspace、verifier、artifact 或协作状态；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章框架对照截止 2026-09-11，并引用仓库 SOURCE_LOCK 中的版本。Core Lab 的任务、成本和 artifact 是公开 deterministic fixture；任何 OpenAI、ADK、LangGraph、MAF 或 A2A 的额外能力只在对应 pinned upstream evidence 范围内成立。未执行真实模型团队实验，所以不报告质量提升百分比或 benchmark 排名。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Multi-Agent 的本质是“带权限和预算的并行状态机”，不是多个 persona。一个可信团队需要 work order、owner、context projection、frontier、atomic reservation、artifact contract、verified join 与 idempotent effect；模型只在这些边界内提供概率性能力。
 
-1. 本章不变量是：**multi-agent specialization requires explicit ownership and context isolation**；
-2. `Supervisor` 必须是可观察软件边界，而不是 prompt 约定；
-3. `共享状态有 schema` 与 `合并结果有 verifier` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 K](../appendix-k-part5-solutions.html#ch28)）：
 
-### 常见误区
-
-- 多个 agent 互相说服而非验证
-- 所有上下文共享
-- 失败 worker 阻塞全局
-
-### 思考题与实践
-
-- **Why：** 为什么 `Supervisor` 不能只靠模型“记住”？
-- **What if：** 如果在 `共享状态有 schema` 与 `合并结果有 verifier` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch28_multi_agent.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **Agent Evaluation：从最终答案到轨迹验证**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么给 Coder 增加 `sources.read` scope 仍不应允许它 claim Researcher 的任务？
+2. 多 Agent 在什么条件下必然比单 Agent 更慢？
+3. 如何证明 context projection 没有遗漏必要信息又没有泄露其他任务数据？
+4. 为什么多数投票不能消除多个同源模型的相关错误？
+5. 怎样把本章 L1/L3 调度实验升级为真实模型团队的可复现实验？

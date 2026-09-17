@@ -1,356 +1,211 @@
-# 模型基座：Token、结构化生成、工具调用与推理接口
+# 模型基座：概率生成、结构化决策与工具调用边界
 
-> **本章核心判断**：Agent Runtime 的上层行为最终受模型输入输出接口约束。本章只讨论与 Agent 系统直接相关的模型能力：token/context、structured output、tool calling、reasoning 与多模态接口，不把模型服务当成不可解释的黑盒。
+> **本章核心判断**：模型原生输出属于概率分布；只有通过语法、模式、语义与授权门的候选，才能成为可持久化的系统意图。
 
-上一章：AI Agent Systems：从模型调用到可运行系统。本章把前一章已经建立的能力进一步推进到 `Token/Context window`；下一章将进入：Context Engineering：信息进入模型之前已经决定了一半结果。
+> 本章把模型视为不确定的决策部件，而不是可信执行器。事实窗口截至 **2026-09-11**；Core Lab 不调用任何模型服务，真实 OpenAI 调用应使用环境变量 `OPENAI_API_KEY`，不得把密钥写入代码、日志、fixture 或提交历史。
 
-![模型基座：Token、结构化生成、工具调用与推理接口：系统边界与组件关系](../../assets/diagrams/02-model-substrate-architecture.svg)
+![模型候选输出必须依次通过语法、模式与语义安全门](../../assets/diagrams/02-model-substrate-architecture.svg)
 
 ## 问题背景与学习目标
 
-Agent Runtime 的上层行为最终受模型输入输出接口约束。本章只讨论与 Agent 系统直接相关的模型能力：token/context、structured output、tool calling、reasoning 与多模态接口，不把模型服务当成不可解释的黑盒。
+大模型的原生接口是条件概率分布，不是类型安全的 RPC。即使服务端承诺结构化输出，也只能缩小“输出长什么样”的空间，不能证明工具存在、用户有权限、参数符合业务语义或副作用可重试。真正的 Agent 工程从这条边界开始。
 
-在本章的 `Token/Context window` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
-
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Agent Runtime 的上层行为最终受模型输入输出接口约束。本章只讨论与 Agent 系统直接相关的模型能力：token/context、structured output、tool calling、reasoning 与多模态接口，不把模型服务当成不可解释的黑盒。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `model output crossing a software boundary must be parsed and validated` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 02A` / `Lab 02B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+本章要求读者理解 token 化、采样、上下文限制与 tool call 的关系；实现 syntax → schema → semantic 三层解码；区分可公开的决策证据与不应依赖的私有思维链；并用错误 JSON 类型证明不合法动作不会到达执行器。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+### 序列分布，而非事实数据库
 
-### Token/Context window
+自回归模型近似：
 
-**定义。** Token 是模型处理文本与多模态序列的计量单元；context window 是一次推理可直接注意到的输入/输出序列预算，而不是长期记忆数据库。
+$$
+p_\theta(y\mid x)=\prod_{i=1}^{n}p_\theta(y_i\mid x,y_{<i})
+$$
 
-**系统责任。** Context window 决定短期可见性和成本。Runtime 应把不可丢的业务状态放在外部 store，把可重建摘要、证据片段和当前任务状态按需装入窗口。
+token 是模型的离散计算单位，不等同于词、字符或业务字段。温度、top-p、随机种子和服务端实现会改变采样轨迹；即使温度为 0，也不应把跨版本、跨硬件、并行推理视为字节级确定。稳定系统因此验证**不变量与后置条件**，而不是期待复现完全相同的自然语言。
 
-**失败边界。** 把“窗口变大”等同于“无需 memory/context engineering”会导致成本、延迟和干扰一起上升。指标应看有效信息密度、cache 命中和被截断的重要状态。
+### Context window 不等于有效工作记忆
 
-### Structured generation
+最大上下文长度只是接口容量上限。有效上下文还受位置、干扰、检索召回、指令冲突、token 化与任务结构影响。向窗口塞入更多材料可能提高覆盖，也可能降低相关证据的可辨识度。第 3 章将把上下文选择建模为受约束的信息配置问题。
 
-**定义。** Structured generation 用 schema、grammar 或 constrained decoding 把模型输出限制为机器可解析对象，例如 action、arguments、plan node 或 verdict。
+### Structured output 是语法设施，不是授权设施
 
-**系统责任。** 它的价值不是 JSON 看起来整齐，而是让 Runtime 在执行前完成类型、枚举、范围和必填字段验证，并把自然语言建议与可执行指令分开。
+一个工具决定至少经历三层：
 
-**失败边界。** 结构化输出不能保证语义正确；合法 JSON 仍可能请求错误账户或危险参数。因此 schema validation 后仍需要 policy 与 domain verifier。
+- **语法层**：字节能否解析为 JSON/typed item；
+- **模式层**：discriminator、必填字段、额外字段、类型与取值域是否正确；
+- **语义层**：工具是否在当前 capability set 中，参数对象是否属于当前租户，风险策略和预算是否允许。
 
-### Tool‑call contract
+通过前一层不蕴含后一层。尤其要拒绝静默类型转换：把字符串 `"30"` 自动转为整数 `30` 看似友好，却会隐藏提供方漂移和契约破坏。
 
-**定义。** Tool‑call contract 定义工具名称、参数类型、权限语义、错误模型、幂等性、超时和返回值含义，是模型与执行层之间的 API 合约。
+### Tool call 是提议，不是调用
 
-**系统责任。** 模型看到的是 affordance；Runtime 看到的是可执行 contract。高风险工具应额外声明 side‑effect level、approval requirement、idempotency/reconciliation 能力。
-
-**失败边界。** 只有 name/description/JSON schema 而没有错误与副作用语义，会让 Agent 无法区分 retryable failure、NOT_APPLIED 和 UNKNOWN。
-
-### Reasoning boundary
-
-**定义。** Reasoning boundary 是“模型可以自由推理什么”与“系统必须用可验证软件决定什么”的分界。模型擅长开放解释、候选生成和模糊匹配，软件擅长权限、计数、事务、约束和判定。
-
-**系统责任。** 工程设计应把关键不变量移出语言空间，例如余额不能为负、审批人不能是申请人、 发布必须通过测试。模型可以建议，但 verifier 决定是否推进。
-
-**失败边界。** 把安全规则仅写进 system prompt 等于让被约束主体同时解释约束；模型能力越强， 这个边界越需要显式化。
+模型生成的 tool name 与 arguments 是候选意图。Runtime 需要重新查表、规范化、授权和落日志后才能调度。工具结果还必须与 call identity 关联；模型最终声称“已完成”也必须由外部 verifier 证实。
 
 ## 原理与理论基础
 
-### 系统不变量
+### 校准、选择性预测与弃权
 
-> **Invariant**：model output crossing a software boundary must be parsed and validated
+模型信心并不天然校准，单个 `confidence=0.94` 不是 94% 成功保证。生产策略应基于离线/在线评测构建风险阈值，并允许系统弃权、询问或升级人工。选择性预测可写为：只在风险估计 $\hat r(x,a)\le \tau$ 时自动执行；高风险动作即使置信度高也仍需确定性授权。
 
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `把模型字符串直接当作可信指令` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
+### 类型系统只能描述可表达的约束
 
+JSON Schema 可以表达字段、类型、枚举和局部关系，却很难单独表达“工单属于当前租户”“维护窗口与现网变更冻结不冲突”“此次动作已被正确审批”。因此 schema validator 与 policy engine 必须分层，错误也应标出发生在哪一层。
 
-### 故障模型
+### 推理接口边界
 
-本章优先把 “把模型字符串直接当作可信指令”、“忽略 schema 校验”、“把隐藏推理当作审计证据” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
+[ReAct](https://arxiv.org/abs/2210.03629) 的核心贡献是把推理与环境行动交错，使新观察能修正后续步骤；这不意味着系统必须记录或暴露完整私有思维链。可审计系统应保存任务输入摘要、选定动作、结构化理由码、工具调用、观测、策略版本和 verifier 结果。隐藏推理可以变化，公共决策契约必须稳定。
 
-### Why / What if / Trade-off
+本章不变量是：
 
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Token/Context window** 与 **Structured generation** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“把模型字符串直接当作可信指令”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Token/Context window 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Structured generation 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `计算输入预算`、`区分模型推理与系统证据` 以及对不变量 **model output crossing a software boundary must be parsed and validated** 的检查。
-
-**What if。** 一旦“忽略 schema 校验”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+> **Invariant**：a model-generated decision must pass syntax, schema, semantic, and authorization gates before dispatch
 
 $$
-P(\mathrm{success})=P(V_{syntax})\,P(V_{semantic}\mid V_{syntax})\,P(V_{effect}\mid V_{semantic})
+Dispatch(d) \Rightarrow Parse(d)\land Schema(d)\land Semantic(d)\land Authorized(d)
 $$
-
-结构化输出只保证“可以解析”，不保证语义正确，更不保证外部效果已经发生。应把 syntax、semantic 和 effect verification 三层分开测量。
-
-**可证伪假设。** 若只用 schema-valid 作为成功条件，工具型任务的真实错误率会被系统性低估。
-
-**建议测量。** schema-valid rate、semantic-valid rate、effect-verified rate、repair turns。
 
 ## 关键机制与执行流程
 
-![模型基座：Token、结构化生成、工具调用与推理接口：正常路径与故障恢复流程](../../assets/diagrams/02-model-substrate-flow.svg)
+![错误类型在模式层被拒绝，合格决定仍需进入授权层](../../assets/diagrams/02-model-substrate-flow.svg)
 
-**Step 1 — 计算输入预算。** `计算输入预算` 负责形成后续决策的输入。需要同时保存来源、版本/时间与必要的关联标识，避免把“当前看到的数据”误当成永远有效的事实。进入下一阶段前，对结构、权限和来源做最小验证，使 `Token/Context window` 的状态能够在 trace 中被复现。
+推荐处理链：保留原始响应引用 → 解析 provider item → 检查 discriminator → 严格校验 schema → 解析领域对象 → capability/policy 判定 → 生成稳定 action intent → 调度。每一层产生机器可聚合的 reason code，避免所有失败都退化成 `invalid output`。
 
-**Step 2 — 解析结构化动作。** 这一阶段可能改变系统或外部环境，因此 `解析结构化动作` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **model output crossing a software boundary must be parsed and validated**。
-
-**Step 3 — 验证 tool arguments。** `验证 tool arguments` 不读取模型的自我评价，而读取 `Tool-call contract` 对应的 artifact、状态或环境事实。验证器应返回可机读结果，并在证据不足时保留失败/UNKNOWN，而不是为了让流程继续而猜测。这样才能把本章不变量 **model output crossing a software boundary must be parsed and validated** 变成真正的验收条件。
-
-**Step 4 — 区分模型推理与系统证据。** `区分模型推理与系统证据` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-在本章的 `Token/Context window` 场景中，**最后一步 — 验证。** verifier 针对 `Reasoning boundary` 检查本章不变量 **model output crossing a software boundary must be parsed and validated**。如果“把模型字符串直接当作可信指令”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **计算输入预算 → 解析结构化动作 → 验证 tool arguments → 区分模型推理与系统证据** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“把模型字符串直接当作可信指令”尤其要检查动作前后的证据是否足以闭合不变量 **model output crossing a software boundary must be parsed and validated**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Token/Context window` 有关的纯计算状态通常可以重算；一旦 `解析结构化动作` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **model output crossing a software boundary must be parsed and validated**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+流式输出尤其不能边接收参数边执行。只有工具调用 item 完整、校验结束并被持久化后，执行面才能看到它。并行工具调用则要分别分配 call identity、独立授权和关联返回，不能把一批调用共享为一个布尔批准。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='模型基座：Token、结构化生成、工具调用与推理接口')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('model-substrate', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+### 严格的判别联合
 
 ```python
-def model_substrate(fault=False):
- raw='{"tool":"search","args":{"q":"agent runtime"}}' if not fault else '{tool: search}'
- try:
- obj=json.loads(raw); valid=isinstance(obj.get('args'),dict) and isinstance(obj.get('tool'),str)
- except json.JSONDecodeError:
- obj={}; valid=False
- est=max(1,len(_tokens(raw)))
- condition=valid if not fault else not valid
- return _ok('model-substrate',fault,{'parsed':valid,'token_proxy':est,'object':obj},'model output crossing a software boundary must be parsed and validated',condition)
+decoder = StrictDecisionDecoder(
+    {"schedule_maintenance": {"service": str, "window_minutes": int}},
+    min_confidence=0.70,
+)
+result = decoder.decode(payload)
+
+if not result.accepted:
+    audit(stage=result.stage, reason_codes=result.errors)
+else:
+    authorize_then_dispatch(result.decision)
 ```
 
+实现中的 `kind` 是 discriminator：`final` 不能携带工具字段，`tool` 必须有对象参数；未知顶层字段和未知参数均拒绝。Python 中 `bool` 是 `int` 的子类，但 JSON 边界显式拒绝 `true` 充当整数，这是领域契约比语言便利规则更严格的例子。
 
-### 简化假设与不能省略的机制
+### 故障输入不是 mock exception
 
+```python
+bad_payload = """{
+  "kind": "tool",
+  "tool": "schedule_maintenance",
+  "arguments": {"service": "payments-api", "window_minutes": "30"},
+  "confidence": 0.94
+}"""
+
+result = decoder.decode(bad_payload)
+assert result.stage == "schema"
+assert result.errors == ("argument_type:window_minutes:expected_int",)
+assert result.accepted is False
+```
+
+关键断点设在 JSON parse、字段集合比较、参数类型检查、工具可用性检查和调度调用之前。实验 oracle 同时观察 `effect_dispatched=false`，防止验证器虽然报错、执行器却已旁路执行。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
-| Anthropic: Building Effective Agents | `official engineering article` | 从简单、可组合的 workflow/agent 模式开始。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/building-effective-agents) |
-| bojieli/ai-agent-book | `main; 10 chapters / 109 experiments observed 2026-09-09` | 对标开源教材：正文、实验 ledger、PDF/EPUB、多语言。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/bojieli/ai-agent-book) |
+[OpenAI Responses API 官方参考](https://developers.openai.com/api/reference/cli/resources/responses/methods/create) 把输入/输出表示为 items，支持自定义函数工具、结构化文本格式、并行工具调用以及与前序 response/conversation 的关联。它给出了提供方协议，但应用仍负责业务授权、工具执行和结果验证。[OpenAI Agents SDK](https://openai.github.io/openai-agents-python/) 在更高层提供 agent loop、tool、guardrail、handoff、session 与 trace；阅读时应区分“SDK 帮你编排什么”和“你的环境保证了什么”。
 
-### 源码阅读方法
+其他框架也会提供 schema 生成或 typed tool 便利层。审计重点不在装饰器语法，而在：是否拒绝额外字段、是否会自动 coercion、provider schema 与本地函数签名如何保持一致、模型版本升级后 contract test 是否运行、校验失败是否可能触发 fallback 工具。
 
-源码阅读以 **OpenAI Agents SDK** 为第一参照，并只追与“模型基座：Token、结构化生成、工具调用与推理接口”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“把模型字符串直接当作可信指令”、如何在“忽略 schema 校验”后恢复，以及如何让 `区分模型推理与系统证据` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+| 项目 | 本章源码入口 | 核查重点 |
+|---|---|---|
+| OpenAI Responses API | response input/output items 与 function tools | provider item 何时完整、usage/response identity 如何保留 |
+| OpenAI Agents SDK | model/tool adapter 与 function schema | SDK 校验与应用授权的责任分界 |
+| AgentLab StrictDecisionDecoder | syntax/schema/semantic gate | 拒绝 coercion、未知字段和缺失 capability |
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 输出策略 | 优点 | 主要风险 | 建议用途 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Anthropic: Building Effective Agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| bojieli/ai-agent-book | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 自由文本后正则解析 | 接入快 | 歧义、注入、难演进 | 仅展示性文本 |
+| JSON mode | 语法更稳定 | 未必符合领域 schema | 中间结构草案 |
+| 严格 schema/tool item | 类型契约清晰 | 仍缺语义与授权 | 工具提议边界 |
+| 有限状态/枚举决策 | 最易验证 | 表达能力较低 | 高风险控制节点 |
 
+类型越严格，修复与版本迁移成本越显式；但这正是可治理系统需要付出的成本。容忍性解析适合人机界面，不适合副作用边界。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“模型基座：Token、结构化生成、工具调用与推理接口”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
 ### 实验环境
 
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“模型基座：Token、结构化生成、工具调用与推理接口”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
+Python `>=3.11,<3.14`，仅标准库和仓库代码；macOS/Linux、`arm64/x86_64` 均可。不需要 OpenAI key。若自行连接真实 OpenAI API，只从进程环境读取 `OPENAI_API_KEY`，并把 provider 模型快照、请求 ID、schema 摘要和运行时间记录为外部证据；不要提交 `.env`。
 
-### Lab 02A — 正常路径
-
-```bash
-PYTHONPATH=src python examples/chapters/ch02_model_substrate.py
-```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::model_substrate`
-- `examples/chapters/ch02_model_substrate.py::main`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "model output crossing a software boundary must be parsed and validated", "invariant_holds": true, "observation": {"object": {"args": {"q": "agent runtime"}, "tool": "search"}, "parsed": true, "token_proxy": 6}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "model-substrate", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 02A](../../../labs/core/lab-02A-model-substrate.md)。
-
-### Lab 02B — 故障注入
+### Lab 02A — 合格的工具决定
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch02_model_substrate.py --fault
+PYTHONPATH=src python3 examples/chapters/ch02_model_substrate.py
 ```
 
-**本发布包实际输出：**
+实际输出应包含 `validation.accepted=true`、`stage=accepted` 与 `effect_dispatched=true`。验收标准是精确合同被接受，而非模型文本相似。[Lab 02A](../../../labs/core/lab-02A-model-substrate.md)
 
-```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "model output crossing a software boundary must be parsed and validated", "invariant_holds": true, "observation": {"object": {}, "parsed": false, "token_proxy": 2}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "model-substrate", "system_detected": true}
+### Lab 02B — 字符串冒充整数
+
+```bash
+PYTHONPATH=src python3 examples/chapters/ch02_model_substrate.py --fault
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L3_CONTAINED**：被测组件检测并 fail-closed/约束了故障，但不声明已恢复业务结果。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 02B](../../../labs/core/lab-02B-model-substrate-fault.md)。
-
-### 观察与证据
-
+实际输出必须出现 `argument_type:window_minutes:expected_int`，并保持 `effect_dispatched=false`、`evidence_level=L3_CONTAINED`。关键断点是 `StrictDecisionDecoder._is_type` 与返回前的 stage 选择。[Lab 02B](../../../labs/core/lab-02B-model-substrate-fault.md)
 
 ## 工程场景与系统设计
 
-本章沿用第 1 章“研发助手”教学负载，重点把 50 并发与 12 回合约束投射到模型调用预算、结构化输出失败率和 provider 限流。
+维护调度系统不应让模型直接写日历或集群。模型可以从事故上下文提出 `{service, window_minutes}`；领域层再补全服务 ID、时区、冻结窗口、租户和风险级别；策略层决定自动、人工审批或拒绝；执行层使用幂等键创建变更；验证层查询变更记录。由此，即使更换模型提供方，行动协议仍保持稳定。
 
-
-### 上线前必须补齐
-
-- 围绕 **模型基座与结构化动作** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `结构化输出跨越软件边界后必须解析、校验和拒绝坏格式，不能把自然语言当类型安全。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+模型升级需要 shadow evaluation：把同一代表性输入送给候选版本，只比较结构化决策、拒绝率、工具选择和风险后置条件，不执行候选写操作。上线用 canary 与回滚门，不能以几个对话样例替代分布评测。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+| 症状 | 根因候选 | 排错证据 |
+|---|---|---|
+| JSON 可解析但被拒 | 字段/类型/枚举漂移 | 原始 item、schema version、reason code |
+| 工具名不存在 | provider hallucination 或目录不同步 | capability manifest 与工具注册摘要 |
+| 参数合法却越权 | schema 只做形状校验 | identity、tenant、policy decision |
+| 流式调用执行两次 | 未等 item 完整或 call identity 不稳 | stream event 序列与 journal |
+| 高置信错误 | 信心未校准或分布漂移 | 分桶可靠性图与任务切片 |
 
-- **把模型字符串直接当作可信指令**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **忽略 schema 校验**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **把隐藏推理当作审计证据**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+解析失败后不要把原文本再次交给同一个模型无限“修 JSON”。应限制修复次数、保留原始与修复后的差异，并在高风险动作上拒绝自动修复语义字段。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+应测量首 token 延迟、完整 decision 延迟、校验耗时、schema rejection rate、semantic rejection rate、tool-selection accuracy、abstention precision、每个 verified task 的 token/成本。并行生成可以降延迟，却会增加冲突、费用和选择偏差；推测执行仅适合可撤销纯读，不能越过授权提前做写操作。
 
-- `task success rate`
-- `structured-decision parse failure`
-- `context tokens / turn`
-- `model turns / task`
-- `trajectory completeness`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Structured generation` 的生命周期时，要重新验证 **model output crossing a software boundary must be parsed and validated**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “把模型字符串直接当作可信指令”、“忽略 schema 校验”、“把隐藏推理当作审计证据”：只有正常路径与对应 fault path 都保持 **model output crossing a software boundary must be parsed and validated**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+可靠性来自 contract test 与分层故障，而不是单一平均成功率。每次 provider/model/schema 变更都应重放边界 corpus：截断 JSON、额外字段、Unicode、极值、布尔冒充整数、未知工具、跨租户对象和高风险参数。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 模型输出仍然是概率性决策，不能提供传统事务语义
-- 没有外部 verifier 时，最终答案不能等同于客观成功
-- 上下文窗口不是无限数据库，历史必须被选择与压缩
-- 模型能力升级会改变最佳 harness 假设，因此边界要可替换
+Core Lab 使用固定 payload，证明本地解码器的可重复语义，不评估任何真实模型生成这些 payload 的概率。官方 API 文档说明接口能力，不证明本仓库已进行外部请求；只有带运行时间、版本、请求摘要和可核验输出的 integration evidence 才能作此声明。
 
-选择方案时要回到本章边界：如果业务不能接受“把模型字符串直接当作可信指令”，就必须为 `Token/Context window` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Structured generation` 决策交给模型，但要用 `区分模型推理与系统证据` 保持结果可验证。**OpenAI Agents SDK** 与 **Anthropic: Building Effective Agents** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-模型接口能约束输出格式，却不能把概率生成转换成数据库式提交语义。结构化输出、function calling 和 reasoning 接口解决的是“模型如何表达意图”，外部动作是否发生仍必须由 Runtime、工具适配器与可观测证据判断。
+严格解码也不能发现所有语义欺骗。例如 `service="payments-api"` 类型正确，却可能指向错误环境；这需要目录解析、身份绑定和策略检查。不要把一个 validator 塑造成万能安全层。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+[Toolformer](https://arxiv.org/abs/2302.04761) 奠定了模型学习工具选择的研究路径；后续问题已转向大规模动态工具空间、工具检索、错误反馈、不可解任务识别和跨模态行动。到 2026 年，评测也开始主动引入损坏与多余工具，而不是假设工具目录永远正确。
 
-- **[Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761)**：探索模型学习何时调用外部工具以及如何把工具结果纳入后续预测。
-- **[Tree of Thoughts: Deliberate Problem Solving with Large Language Models](https://proceedings.neurips.cc/paper_files/paper/2023/hash/271db9922b8d1f4dd7aaef84ed5ac703-Abstract-Conference.html)**：把单路径推理扩展为可搜索的 thought tree，支持 lookahead/backtracking。
-- **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**（v0.22.0 @ 4df9ecf）：Agent/Runner/Tools/Handoffs/Guardrails/Sessions/HITL/Tracing；0.22.0 包含 runtime hardening。
-- **[Anthropic: Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)**（official engineering article）：从简单、可组合的 workflow/agent 模式开始。
+开放问题包括：如何在 schema 演进时保持长期 run 可恢复；如何校准“调用/弃权”而非仅校准答案；如何验证模型对工具描述中的恶意内容保持指令隔离；如何让 provider-native structured output、MCP schema 和应用领域类型共享一个可审计的源，而不产生三套漂移合同。
 
+### 深度审计与研究证据链：模型接口
 
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI Agents SDK v0.22.2（v0.22.2 @ 83c737f; 2026‑09‑09）：latest observed Python Agents SDK release。
-- OpenAI GPT‑5.6 release/evaluation page（2026‑07; observed 2026-09-11）：2026 coding/professional benchmark landscape; model‑specific numbers treated as vendor‑reported。
-
-**本章吸收的变化。** 结构化生成只提高语法可解析性；工具参数是否语义正确、外部 effect 是否真的发生仍是后续层。三者必须分别测量，避免把 JSON valid 误当成任务成功。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Token/Context window`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **model output crossing a software boundary must be parsed and validated** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“把模型字符串直接当作可信指令”和“忽略 schema 校验”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **模型基座与结构化动作** 的可验证性。Toolformer 说明模型可学习调用工具的时机，但工程上仍需要 schema、parser 与拒绝路径。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Token/Context window` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“把模型字符串直接当作可信指令”与“忽略 schema 校验”同时发生时，**OpenAI Agents SDK** 与 **Anthropic: Building Effective Agents** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Structured generation` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“把隐藏推理当作审计证据”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：模型基座与结构化动作
-
-本章重新审计后的核心结论是：**结构化输出跨越软件边界后必须解析、校验和拒绝坏格式，不能把自然语言当类型安全。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[ReAct](https://arxiv.org/abs/2210.03629)**：reasoning/action 交错轨迹让模型决策可被放进 trajectory，而不是隐藏在最终回答里。
-- **[Toolformer](https://arxiv.org/abs/2302.04761)**：说明模型可学习工具调用，但工程系统仍要在模型外做 schema 与权限验证。
-- **[Anthropic Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)**：强调先从简单可组合的 workflow/agent 模式出发。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI Responses/Agents、smolagents 的 ToolCallingAgent 与 CodeAgent 可用于比较 JSON tool call、代码动作和 SDK 托管 loop 的边界。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证模型基座与结构化动作的输入、消息和状态是否能被显式记录；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+官方 Responses 参考只支持“该接口具有这些 item/tool 字段”的文档事实；Toolformer/ReAct 支持模型工具使用的研究背景；Core Lab 的真实输出只支持 decoder 合同。三者分别对应 API、研究与本地机制层，不能合并成“真实模型端到端可靠”的强结论。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+模型输出是概率生成物，tool call 是候选意图，strict schema 是必要但不充分的边界。一个可执行决定必须经过语法、模式、语义与授权四道门，并留下足以重建选择过程的公共证据。
 
-1. 本章不变量是：**model output crossing a software boundary must be parsed and validated**；
-2. `Token/Context window` 必须是可观察软件边界，而不是 prompt 约定；
-3. `计算输入预算` 与 `区分模型推理与系统证据` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
-
-### 常见误区
-
-- 把模型字符串直接当作可信指令
-- 忽略 schema 校验
-- 把隐藏推理当作审计证据
+进阶实践：扩展 decoder 支持带版本的 discriminated union；加入 `schema_version`、取值上下界与 canonical arguments hash；建立旧版本迁移测试，并证明未知新字段默认 fail-closed。
 
 ### 思考题与实践
 
-- **Why：** 为什么 `Token/Context window` 不能只靠模型“记住”？
-- **What if：** 如果在 `计算输入预算` 与 `区分模型推理与系统证据` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch02_model_substrate.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
+1. 为什么 temperature=0 仍不应被视为跨环境确定性保证？
+2. JSON Schema 能证明什么，不能证明什么？
+3. 设计一次 provider schema 与本地函数签名漂移的 contract test。
+4. 为什么不应以私有思维链作为生产审计日志？应保存哪些替代证据？
+5. 真实 OpenAI 实验怎样记录证据，才不与离线 Core Lab 混淆？
 
-下一章进入 **Context Engineering：信息进入模型之前已经决定了一半结果**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+参考答案见[附录 G：第二章参考答案](../appendix-g-part1-solutions.html#part1-solutions-ch02)。

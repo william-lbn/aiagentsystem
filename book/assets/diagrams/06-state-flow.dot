@@ -1,21 +1,19 @@
 digraph G {
-graph [rankdir=TB,bgcolor="transparent",pad="0.15",nodesep="0.28",ranksep="0.42"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=16,color="#34495e",fillcolor="#f8fbfd"];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-s0 [label="Step 1  接收输入"];
-s1 [label="Step 2  状态对象显式建模"];
-s2 [label="Step 3  关键转换写 checkpoint"];
-s3 [label="Step 4  每个 artifact 有引用"];
-s4 [label="Step 5  断点观察 state diff"];
-s5 [label="Step 6  写入证据"];
-s6 [label="Step 7  验证结果"];
-s0->s1;
-s1->s2;
-s2->s3;
-s3->s4;
-s4->s5;
-s5->s6;
-fail [shape=diamond,label="故障/不确定?",fillcolor="#fdecea"];
-s5->fail [style=dashed];
-fail->s0 [label="retry only if safe",style=dashed,color="#b03a2e"];
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.25",ranksep="0.35"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",fillcolor="#f8fbfd"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+v1 [label="Checkpoint version 1\nphase=RUNNING"];
+readers [label="Reader A 与 B\n均读取 version 1",fillcolor="#edf5ff"];
+awrite [label="A: expected=1\n提交 version 2 / RUNNING",fillcolor="#eef9f1"];
+bwrite [label="B: expected=1\n尝试伪写 FINISHED",fillcolor="#fdecea"];
+cas [shape=diamond,label="expected == current?",fillcolor="#fff4e6"];
+conflict [label="CheckpointConflictError\n拒绝 stale writer",fillcolor="#fdecea"];
+final [label="权威快照保持\nversion 2 / RUNNING",fillcolor="#eef9f1"];
+v1->readers;
+readers->awrite [label="A"];
+readers->bwrite [label="B"];
+awrite->cas [label="current=2"];
+bwrite->cas [label="expected=1"];
+cas->conflict [label="否",color="#b03a2e"];
+conflict->final;
 }

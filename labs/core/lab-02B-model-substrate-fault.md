@@ -1,17 +1,12 @@
-# Lab 02B — 模型基座：Token、结构化生成、工具调用与推理接口｜故障注入
+# Lab 02B — 字符串冒充整数的契约故障｜故障注入
 
 ## 实验目标
 
-验证不变量：**model output crossing a software boundary must be parsed and validated**
+验证可解析 JSON 仍可能违反类型合同；`"window_minutes":"30"` 必须在 schema 层被检测并阻断，不能静默转换后调度。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 与 API key。与 02A 使用完全相同的 decoder 和合同。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与故障模型
 
-入口：`examples/chapters/ch02_model_substrate.py`；核心机制：`src/agentlab/course_scenarios.py::model_substrate`。
+运行 `examples/chapters/ch02_model_substrate.py --fault`。唯一自变量是把 `window_minutes` 从 JSON number 变为 JSON string；JSON 语法仍合法，工具名也存在，因此可以确认错误由 schema/type gate 捕获。
 
-本实验输入由 `model_substrate` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::model_substrate`
-- `examples/chapters/ch02_model_substrate.py::main`
-
-## 实验 B：故障注入路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch02_model_substrate.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "model output crossing a software boundary must be parsed and validated", "invariant_holds": true, "observation": {"object": {}, "parsed": false, "token_proxy": 2}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "model-substrate", "system_detected": true}
+{"effect_dispatched": false, "validation": {"accepted": false, "errors": ["argument_type:window_minutes:expected_int"], "stage": "schema"}}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+在 `StrictDecisionDecoder._is_type` 检查 value 的实际类型；在 schema 错误返回处确认尚未进入 semantic/dispatch；在执行边界设断点，故障路径不得命中。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+reason code 精确为 `argument_type:window_minutes:expected_int`，stage 为 `schema`，`effect_dispatched=false`；完整结果为 `system_detected=true/contained=true/L3_CONTAINED`。
+
+## 证据解释与上限
+
+L3 只说明此类类型漂移被本地组件约束。它不证明所有业务语义正确：合法字符串 `payments-api` 仍可能指向错误租户或环境。
+
+## 进阶实验
+
+追加 `true` 冒充整数、未知字段、NaN/极值、未知工具和低于阈值的 confidence；要求分别落到 schema 或 semantic 层，并保持零调度。

@@ -1,17 +1,12 @@
-# Lab 04B — Messages、Structured Output 与 ReAct 轨迹｜故障注入
+# Lab 04B — Orphan Tool Result 因果断裂｜故障注入
 
 ## 实验目标
 
-验证不变量：**tool-call arguments are typed data, not trusted natural language**
+注入引用 `call-404` 的工具结果；要求 ledger 检测 orphan、拒绝追加、保留合法 `call-7` 的 pending 状态，并阻止错误观测影响最终回答。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 或 API key。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与故障模型
 
-入口：`examples/chapters/ch04_messages.py`；核心机制：`src/agentlab/course_scenarios.py::messages`。
+入口 `examples/chapters/ch04_messages.py --fault`。前两项与 Lab 04A 相同；第三项 tool name 正确但 call ID 改成不存在的 `call-404`，用于隔离 identity 因素。
 
-本实验输入由 `messages` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::messages`
-- `examples/chapters/ch04_messages.py::main`
-
-## 实验 B：故障注入路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch04_messages.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "tool-call arguments are typed data, not trusted natural language", "invariant_holds": true, "observation": {"call": {"arguments": {}, "name": "lookup"}, "missing": ["id"]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "messages", "system_detected": true}
+{"accepted": [true, true, false], "errors": ["orphan_or_duplicate_tool_result"], "ledger_size": 2, "pending_calls": ["call-7"], "trajectory_sha256": "3537151ff45a487e"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+在 `_pending` lookup 处确认 `call-404` 不存在；在 ledger append 行设断点并确认故障 item 不进入；结尾确认 pending `call-7` 没有被错误消费。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+必须同时看到明确 reason code、append 第三项为 false、ledger 长度仍为 2、合法 pending 保留，以及 `system_detected=true/contained=true/L3_CONTAINED`。
+
+## 证据解释与上限
+
+L3 表示孤儿结果在本地边界被约束；没有恢复缺失的合法结果，因此不是 L4。实验未覆盖跨进程重复投递与消息代理重排序。
+
+## 进阶实验
+
+分别注入重复 item ID、重复 call ID、正确 call/错误 tool name 和 pending 未清时的 final；要求 reason code 可区分且任何拒绝均不改变 digest。

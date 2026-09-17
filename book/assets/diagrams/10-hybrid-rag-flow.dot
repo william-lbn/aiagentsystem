@@ -1,21 +1,19 @@
 digraph G {
-graph [rankdir=TB,bgcolor="transparent",pad="0.15",nodesep="0.28",ranksep="0.42"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=16,color="#34495e",fillcolor="#f8fbfd"];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-s0 [label="Step 1  接收输入"];
-s1 [label="Step 2  将检索计划写入 trace"];
-s2 [label="Step 3  每次改写保存 rationale"];
-s3 [label="Step 4  rerank 保留候选列表"];
-s4 [label="Step 5  无证据时拒答"];
-s5 [label="Step 6  写入证据"];
-s6 [label="Step 7  验证结果"];
-s0->s1;
-s1->s2;
-s2->s3;
-s3->s4;
-s4->s5;
-s5->s6;
-fail [shape=diamond,label="故障/不确定?",fillcolor="#fdecea"];
-s5->fail [style=dashed];
-fail->s0 [label="retry only if safe",style=dashed,color="#b03a2e"];
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.3",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+query [label="Query + Budget",fillcolor="#fff4e6"];
+parallel [label="并行 Retriever Adapters",fillcolor="#edf5ff"];
+validate [label="拒绝 Unknown / Duplicate / Forbidden ID",fillcolor="#fdecea"];
+rrf [label="RRF 融合\n保留每路 Rank/Version",fillcolor="#eef9f1"];
+enough [shape=diamond,label="证据充分?",fillcolor="#fdecea"];
+answer [label="回答 + 引用 + Verifier",fillcolor="#f6efff"];
+retry [label="Rewrite / Decompose\n预算单调递减",fillcolor="#fff4e6"];
+query->parallel;
+parallel->validate;
+validate->rrf;
+rrf->enough;
+enough->answer [label="是"];
+enough->retry [label="否"];
+retry->parallel [label="仍有预算",style=dashed];
 }

@@ -56,7 +56,12 @@ for i, p in enumerate(chapters):
         if rel.startswith(("http://", "https://", "mailto:", "data:", "#")):
             continue
         target = (p.parent / rel.split("#", 1)[0]).resolve()
-        req(target.exists(), f"{p}: broken local link {rel} -> {target}")
+        # Chapters may deliberately name the rendered HTML peer so the same
+        # link works in Quarto's multi-page site and Pandoc's compatibility
+        # site.  In the source tree that peer is Markdown; require it to exist
+        # rather than weakening local-link validation for arbitrary HTML.
+        source_peer = target.with_suffix(".md") if target.suffix == ".html" else target
+        req(source_peer.exists(), f"{p}: broken local link {rel} -> {target}")
 
 # Appendix labels remain explicit in canonical Markdown for website/EPUB readability.
 for i, p in enumerate(apps):

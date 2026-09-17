@@ -1,16 +1,18 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Approval request",fillcolor="#edf5ff"];
-n2 [label="Interrupt",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Resume",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.5"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+model [label="Model\nAction Proposal",fillcolor="#fff4e6"];
+runtime [label="Runtime / Policy\nCanonical Action Envelope",fillcolor="#fdecea"];
+store [label="Durable Checkpoint\nWAITING_APPROVAL",fillcolor="#edf5ff"];
+ui [label="Approval Service / UI\nPrincipal · Decision · Expiry",fillcolor="#f6efff"];
+tool [label="Effect Tool\n最小凭据",fillcolor="#eef9f1"];
+journal [label="Effect Journal / Verifier",fillcolor="#edf5ff"];
+model->runtime;
+runtime->store [label="action id + digest"];
+store->ui [label="不可变 preview"];
+ui->runtime [label="signed decision"];
+runtime->tool [label="重新校验后执行"];
+tool->journal [label="receipt / unknown"];
+journal->runtime [label="后置条件"];
 }

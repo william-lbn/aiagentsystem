@@ -1,16 +1,18 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Context window",fillcolor="#edf5ff"];
-n2 [label="Instruction hierarchy",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Budgeting",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.3",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+sources [label="候选来源\nPolicy · State · Trace\nRunbook · Memory · Web",fillcolor="#fff4e6"];
+metadata [label="记录元数据\nSource · Tenant · Freshness\nAuthority · Token Cost",fillcolor="#edf5ff"];
+hard [label="硬过滤\n租户 + Trust/Channel",fillcolor="#fdecea"];
+mandatory [label="Mandatory Gate\nPolicy + 当前 Task/State",fillcolor="#eef9f1"];
+select [label="预算内选择\n效用 / 成本 + 稳定排序",fillcolor="#eef9f1"];
+view [label="有序 Context View\n给模型的有限投影",fillcolor="#f6efff"];
+manifest [label="Assembly Manifest\nSelected + Excluded Reasons",fillcolor="#f7f9f9"];
+sources->metadata;
+metadata->hard;
+hard->mandatory;
+mandatory->select;
+select->view;
+select->manifest [label="审计"];
 }

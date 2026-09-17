@@ -1,16 +1,19 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Messages",fillcolor="#edf5ff"];
-n2 [label="Structured output",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="ReAct trace",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.32",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+user [label="UserMessage\nitem_id=m1",fillcolor="#fff4e6"];
+call [label="AssistantToolCall\nitem_id=m2 · call_id=c7",fillcolor="#edf5ff"];
+pending [label="Pending Index\nc7 → read_ticket",fillcolor="#f6efff"];
+result [label="ToolResult\nitem_id=m3 · call_id=c7",fillcolor="#eef9f1"];
+final [label="AssistantMessage\n仅 Pending=∅ 时接受",fillcolor="#edf5ff"];
+ledger [label="Append-only Ledger\nCanonical Digest",fillcolor="#f7f9f9"];
+user->call;
+call->pending [label="register"];
+pending->result [label="identity match"];
+result->final [label="complete c7"];
+user->ledger [style=dashed];
+call->ledger [style=dashed];
+result->ledger [style=dashed];
+final->ledger [style=dashed];
 }

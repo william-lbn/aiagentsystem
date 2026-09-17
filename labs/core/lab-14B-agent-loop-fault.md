@@ -1,54 +1,37 @@
-# Lab 14B — Agent Loop：从 while 循环到可治理 Runtime｜故障注入
+# Lab 14B — 有界 Agent Loop：重复轨迹｜故障注入
 
 ## 实验目标
 
-验证不变量：**the loop must have a deterministic stop condition and a finite budget**
+注入持续重复的同一动作和 observation，验证 Runtime 能检测无进展并在总步数预算之前停止。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；macOS/Linux；ARM64/x86_64；
+- 无网络/API key；真实循环和摘要计算；
+- 预期证据 `L3_CONTAINED`，不声称恢复任务结果。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch14_agent_loop.py`；核心机制：`src/agentlab/course_scenarios.py::agent_loop`。
-
-本实验输入由 `agent_loop` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::agent_loop`
-- `examples/chapters/ch14_agent_loop.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 B：故障注入路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch14_agent_loop.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "the loop must have a deterministic stop condition and a finite budget", "invariant_holds": true, "observation": {"model_calls": 1, "status": "BUDGET_EXCEEDED", "tool_calls": 1}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "agent-loop", "system_detected": true}
+{"contained":true,"evidence_level":"L3_CONTAINED","fault":true,"observation":{"event_types":["decision","observation","decision","observation","decision","observation","stop"],"status":"NO_PROGRESS","steps":3,"stop_reason":"no_progress","verified":false},"passed":true,"scenario":"agent-loop"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+观察三轮 `progress_digest` 相同，第三次后 `same_observation > 2`，Runtime 追加 `stop` 而不再调用决策器。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+`status=NO_PROGRESS`、`steps=3`、`contained=true`、`verified=false`；不得把 containment 写成任务成功或自动恢复。

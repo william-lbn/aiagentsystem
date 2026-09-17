@@ -1,17 +1,12 @@
-# Lab 06A — Agent State、Trajectory 与可调试性｜正常路径
+# Lab 06A — 事件重放与版本化 Checkpoint｜正常路径
 
 ## 实验目标
 
-验证不变量：**state transitions must be explicit, monotonic where terminal, and auditable**
+验证合法事件序列可由 reducer 重放到 `FINISHED`，每次持久化通过真实 `JsonCheckpointStore` 递增版本，并保存 trajectory digest。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS 13+/Ubuntu 22.04+ 的 POSIX 文件语义；`arm64/x86_64`；无网络、Docker 或 API key。临时目录内执行 file lock、fsync 与 atomic replace。
 
 ## 环境准备
 
@@ -20,33 +15,38 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与输入
 
-入口：`examples/chapters/ch06_state.py`；核心机制：`src/agentlab/course_scenarios.py::state`。
+- 入口：`examples/chapters/ch06_state.py`
+- reducer：`foundation_system.py::RunStateReducer`
+- store：`checkpoint.py::JsonCheckpointStore`
 
-本实验输入由 `state` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+事件依次为收到请求、持久化工具 intent、观察工具结果、验证产物；phase 走 `RECEIVED→RUNNING→WAITING_TOOL→RUNNING→FINISHED`。
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::state`
-- `examples/chapters/ch06_state.py::main`
-
-## 实验 A：正常路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch06_state.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "state transitions must be explicit, monotonic where terminal, and auditable", "invariant_holds": true, "observation": {"path": ["RECEIVED", "RUNNING", "WAITING_TOOL", "RUNNING", "FINISHED"], "valid": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "state", "system_detected": false}
+{"phase": "FINISHED", "stale_write_rejected": false, "trajectory_sha256": "15eb13b91c3f77d0", "trajectory_valid": true, "version": 3}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+检查 reducer 的 sequence/from/to；`persist_replay` 拒绝 invalid 轨迹；store 在锁内比较 expected/current；观察 temp write、fsync、replace 和最终 load。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+轨迹合法，最终 phase 为 FINISHED，checkpoint version 为 3，digest 非空且重复运行稳定，完整结果为 `L1_MECHANISM`。
+
+## 证据解释与上限
+
+这是单机 POSIX checkpoint 机制证据，不证明跨主机共识、灾备或外部副作用 exactly-once。`FINISHED` 仅因 fixture 的 `artifact_verified` 事件成立。
+
+## 进阶实验
+
+在每个持久化窗口模拟进程 kill，枚举恢复点；要求恢复不重新执行已记录工具结果，也不跳过尚未验证的后置条件。

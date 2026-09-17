@@ -4,7 +4,7 @@ from agentlab.course_scenarios import run_scenario
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="AI Agent Systems：从模型调用到可运行系统")
+    p = argparse.ArgumentParser(description="AI Agent Systems：从生成模型到可治理行动系统")
     p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
     args = p.parse_args()
     result = run_scenario("foundation", fault=args.fault)

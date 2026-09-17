@@ -1,353 +1,204 @@
 # Tool Design：让模型拥有可用而可控的双手
 
-> **本章核心判断**：工具是模型行动空间的系统调用层；工具设计要同时考虑可发现性、语义粒度、参数校验、风险等级和输出形状。
+> **本章命题**：Tool 不是“给模型看的函数列表”，而是概率决策系统与确定性执行系统之间的 ABI。一个可上线的工具契约必须同时界定：何时使用、何时不用、输入与输出形状、最小能力、风险、效果语义和证据出口。
 
-上一章：Agent State、Trajectory 与可调试性。本章把前一章已经建立的能力进一步推进到 `Affordance`；下一章将进入：Tool Runtime：调度、权限、超时、重试与副作用语义。
+第一篇已经把模型输出限制为候选 Intent。本章回答下一步：怎样把 Intent 映射为狭窄、可验证、不会因一句提示注入就无限扩权的动作接口。
 
-![Tool Design：让模型拥有可用而可控的双手：系统边界与组件关系](../../assets/diagrams/07-tool-design-architecture.svg)
+![工具契约把概率决策与确定性执行隔开](../../assets/diagrams/07-tool-design-architecture.svg)
 
 ## 问题背景与学习目标
 
-工具是模型行动空间的系统调用层；工具设计要同时考虑可发现性、语义粒度、参数校验、风险等级和输出形状。
+传统 API 假设调用方是确定性程序；Agent Tool 的调用方会误选工具、漏填约束、混淆相似概念，还可能把不可信内容当成指令。因此，一个在 OpenAPI 中“合法”的接口，不一定是好的 Agent Tool。把 `run_shell(command: string)` 暴露给模型，schema 很短，却把文件、网络、进程和凭据的组合权限一起交了出去。
 
-在本章的 `Affordance` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+完成本章后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“工具是模型行动空间的系统调用层；工具设计要同时考虑可发现性、语义粒度、参数校验、风险等级和输出形状。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `a tool contract must state intent, typed arguments, risk, and idempotency` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 07A` / `Lab 07B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 把工具描述写成可评测的 affordance，而不是内部 API 注释；
+- 区分 schema correctness、semantic validity、authorization 与 effect safety；
+- 用 risk × effect semantics 推导审批、幂等键、对账与 verifier；
+- 把大结果转成有摘要、有哈希、有介质类型的 artifact，而非塞回上下文；
+- 设计 tool-selection eval，测量错选、漏选、参数错误和输出误用，而不是只测最终答案。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+### Affordance 是决策界面
 
-### Affordance
+函数名告诉编译器“怎么调用”，affordance 要告诉模型“在什么任务状态下值得调用”。描述至少包含 use-when、do-not-use、对象身份、结果含义、典型失败和成本。相邻工具应具有可区分边界；若 `search_customer`、`find_user`、`lookup_account` 的语义重叠，模型性能问题首先是工具集设计问题。
 
-**定义。** Tool affordance 是模型从工具描述中感知到的“可以做什么、什么时候该做、有什么代价与风险”。好的 affordance 比单纯函数名更接近人类操作说明。
+### Schema 约束表示，不证明授权
 
-**系统责任。** 描述应包含输入语义、返回信息、典型失败和何时不要使用；工具集合过大时还需要 discover/search，而不是把所有 schema 塞进 prompt。
+`invoice_id` 是字符串，只能说明它的表示；它是否属于当前租户、当前操作者能否读取、账单是否已删除，需要目录、策略和业务状态验证。Schema 是第一道门，不是安全证明。
 
-**失败边界。** 模糊 affordance 会导致模型选错工具或在相似工具之间随机游走；过度暴露工具则增加 prompt injection 与权限面。
+### Capability 与 Tool 分离
 
-### Schema
+Tool 是调用界面，capability 是执行主体得到的权力。`billing.invoice_read` 可要求 `billing.invoice.read`，但模型看见工具并不自动获得该 capability。注册、选择、授权、执行是四个不同事件。
 
-**定义。** Tool schema 是参数结构的可执行契约，应该把类型、范围、枚举、互斥关系和必填项尽量前移到 Runtime validation。
+### Result 是 Observation，不是事实本身
 
-**系统责任。** Schema 同时服务模型生成与服务器验证。对 ID、金额、时间等关键字段应使用领域类型或额外 verifier，而不是全部 string。
-
-**失败边界。** Schema 太宽会把错误推到真实系统；schema 太窄则迫使模型用自然语言绕过。
-
-### Risk level
-
-**定义。** Risk level 描述工具调用可能造成的外部损失和可逆性，例如 read‑only、reversible write、high‑impact irreversible。
-
-**系统责任。** Runtime 可以根据 risk 决定是否需要 approval、sandbox、短期凭据、二次验证或 effect journal。风险应绑定具体 action，而不是只给整个 Agent 一个“高/低风险”标签。
-
-**失败边界。** 若低风险查询与支付/删除共享同一权限，任何 prompt injection 都能直接升级成高影响事件。
-
-### Result shaping
-
-**定义。** Result shaping 是把原始工具输出转换为模型真正需要的最小、结构化 observation，同时保留原始证据引用。
-
-**系统责任。** 应裁剪无关字段、标记来源/时间、限制不可信文本，并让大对象通过 handle/file 引用而不是全部塞进 context。
-
-**失败边界。** 过度摘要会删除关键错误信息；完全透传 HTML/日志会引入噪声和注入风险。
+工具返回值可能陈旧、截断、含注入文本或与真实效果脱节。结果必须带 provenance、观察时间、状态码和必要 receipt；大对象进入 artifact store，模型只得到受限 preview 与内容哈希。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：a tool contract must state intent, typed arguments, risk, and idempotency
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `万能 shell 暴露过大` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “万能 shell 暴露过大”、“工具描述像内部 API 文档”、“返回原始日志淹没模型” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Affordance** 与 **Schema** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“万能 shell 暴露过大”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Affordance 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Schema 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `工具元数据包含 risk/idempotent`、`错误分类可进入 eval` 以及对不变量 **a tool contract must state intent, typed arguments, risk, and idempotency** 的检查。
-
-**What if。** 一旦“工具描述像内部 API 文档”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+把工具契约写为：
 
 $$
-R(tool)=Impact\times Irreversibility\times Uncertainty
+T=(N,D,I,O,C,R,E,L,V)
 $$
 
-工具风险由影响范围、不可逆性和结果不确定性共同决定；权限和审批强度应跟随风险而不是跟随工具名称。
+其中 $N/D$ 是名称与使用边界，$I/O$ 是输入输出 schema，$C$ 是 capability 集，$R$ 是风险等级，$E$ 是效果语义，$L$ 是结果预算，$V$ 是 verifier。一个调用只有在以下合取成立时才可提交：
 
-**可证伪假设。** 基于风险分级的审批/限权能在保持低风险任务自动化率的同时降低高风险 unsafe effect。
+$$
+Valid(I)\land Semantic(I,S)\land C\subseteq Grant(subject)\land Policy(R,E,I)=allow
+$$
 
-**建议测量。** high-risk approval coverage、unsafe-effect rate、approval latency、least-privilege coverage。
+本章使用三个效果类别：`pure` 不改变外部状态；`idempotent` 在同一 key 下重复不会增加效果；`reconcilable` 允许通过外部 ledger 查询最终结果。这里的 idempotent 是业务合同，不是 HTTP 方法名称。
+
+**不变量**：a tool contract must expose bounded semantics, least privilege, risk, effects, and result shape。
+
+该不变量可被反例推翻：若不可逆工具声明成 idempotent、capability 为 `*`、或描述没有“不应用于什么”，注册阶段必须失败。
 
 ## 关键机制与执行流程
 
-![Tool Design：让模型拥有可用而可控的双手：正常路径与故障恢复流程](../../assets/diagrams/07-tool-design-flow.svg)
+![工具契约从注册审计到 artifact observation 的执行链](../../assets/diagrams/07-tool-design-flow.svg)
 
-**Step 1 — 工具元数据包含 risk/idempotent。** `工具元数据包含 risk/idempotent` 是“Tool Design：让模型拥有可用而可控的双手”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Affordance` 是否仍满足 **a tool contract must state intent, typed arguments, risk, and idempotency**。
-
-**Step 2 — 参数用类型和 enum 约束。** `参数用类型和 enum 约束` 是“Tool Design：让模型拥有可用而可控的双手”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Schema` 是否仍满足 **a tool contract must state intent, typed arguments, risk, and idempotency**。
-
-**Step 3 — 大输出转 artifact。** `大输出转 artifact` 是“Tool Design：让模型拥有可用而可控的双手”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Risk level` 是否仍满足 **a tool contract must state intent, typed arguments, risk, and idempotency**。
-
-**Step 4 — 错误分类可进入 eval。** `错误分类可进入 eval` 是“Tool Design：让模型拥有可用而可控的双手”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Result shaping` 是否仍满足 **a tool contract must state intent, typed arguments, risk, and idempotency**。
-
-在本章的 `Affordance` 场景中，**最后一步 — 验证。** verifier 针对 `Result shaping` 检查本章不变量 **a tool contract must state intent, typed arguments, risk, and idempotency**。如果“万能 shell 暴露过大”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **工具元数据包含 risk/idempotent → 参数用类型和 enum 约束 → 大输出转 artifact → 错误分类可进入 eval** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“万能 shell 暴露过大”尤其要检查动作前后的证据是否足以闭合不变量 **a tool contract must state intent, typed arguments, risk, and idempotency**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Affordance` 有关的纯计算状态通常可以重算；一旦 `参数用类型和 enum 约束` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **a tool contract must state intent, typed arguments, risk, and idempotency**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+1. **注册审计**：检查 namespace、use/do-not-use 边界、schema 完整性、最小 capability、risk/effect 一致性与结果上限。
+2. **候选选择**：模型只能从当前主体可见的工具视图中提出调用；不可见能力不进入 prompt。
+3. **参数三门**：syntax/schema gate 后仍要过 semantic 与 authorization gate。
+4. **Intent 固化**：保存 canonical args digest、tool contract version、subject 和 action identity。
+5. **受控执行**：Runtime 施加 timeout、credential scope、network/filesystem policy。
+6. **结果塑形**：小结果内联；大结果写入 content-addressed artifact，只返回 preview、hash 与 handle。
+7. **独立验证**：对于写动作，工具成功响应不等于业务完成，后置条件由 verifier 重新观察。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Tool Design：让模型拥有可用而可控的双手')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('tool-design', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+本书的参考实现位于 `src/agentlab/knowledge_system.py`。注册器不是简单存字典，而是拒绝含混或自相矛盾的合同：
 
 ```python
-def tool_design(fault=False):
- @tool('Fetch invoice by immutable identifier',risk='low',idempotent=True)
- def invoice(id:int)->dict:return {'id':id,'amount':42}
- reg=ToolRegistry(); reg.register(invoice); schema=reg.schema()[0]
- if fault: schema['description']='do things'
- quality=bool(schema['description']) and 'invoice' in schema['description'].lower() and schema['parameters']['required']==['id']
- return _ok('tool-design',fault,{'schema':schema},'a tool contract must state intent, typed arguments, risk, and idempotency', quality if not fault else not quality)
+def validate_tool_contract(contract: ToolContract) -> tuple[str, ...]:
+    errors = []
+    if not re.fullmatch(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*", contract.name):
+        errors.append("name_must_be_namespaced")
+    lowered = contract.description.lower()
+    if "use when" not in lowered or "do not use" not in lowered:
+        errors.append("description_missing_use_and_non_use_boundary")
+    if not contract.capabilities or "*" in contract.capabilities:
+        errors.append("capability_scope_not_least_privilege")
+    if contract.risk is Risk.IRREVERSIBLE and contract.effect is EffectSemantics.IDEMPOTENT:
+        errors.append("irreversible_effect_requires_reconciliation_contract")
+    return tuple(errors)
 ```
 
+正常路径使用 `billing.invoice_read`。1504-byte 原始 JSON 不进入模型上下文，而是得到稳定 artifact identity：
 
-### 简化假设与不能省略的机制
+```python
+raw = json.dumps(invoice, sort_keys=True).encode()
+artifact = store.put(raw, media_type="application/json")
+observation = {
+    "artifact_id": artifact.artifact_id,
+    "sha256": artifact.sha256,
+    "bytes": artifact.bytes,
+    "preview": artifact.preview,
+}
+```
 
+这段代码没有调用大模型；它验证的是 tool ABI 和 result-shaping 机制。模型是否能选对工具必须在另一个 provider eval 中测量。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| Anthropic: Writing effective tools for agents | `official engineering article` | 工具接口本身是 Agent 性能与安全的重要变量。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/writing-tools-for-agents) |
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
-| Hugging Face smolagents | `source observed 2026-09-09` | CodeAgent 与 ToolCallingAgent 的轻量实现对照。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/huggingface/smolagents) |
+| 对照对象 | 提供的机制 | 阅读时要追问 |
+|---|---|---|
+| [OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create) | custom function、hosted tool、MCP tool 与 tool choice | provider item 如何映射为本地 canonical intent；参数何时算完整 |
+| [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | function tools、guardrails、sessions、tracing | tool schema 生成、调用错误、approval 与 trace 的责任边界 |
+| [Anthropic 工具工程指南](https://www.anthropic.com/engineering/writing-tools-for-agents) | namespacing、精确描述、token-efficient response、tool eval | 工具描述变化如何进入回归数据，而非凭直觉上线 |
+| [Toolformer](https://arxiv.org/abs/2302.04761) | 模型学习何时调用外部工具的研究基线 | “会调用”与“被授权安全执行”之间还缺哪些系统层 |
 
-### 源码阅读方法
-
-源码阅读以 **Anthropic: Writing effective tools for agents** 为第一参照，并只追与“Tool Design：让模型拥有可用而可控的双手”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“万能 shell 暴露过大”、如何在“工具描述像内部 API 文档”后恢复，以及如何让 `错误分类可进入 eval` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+官方 SDK 提供 provider-facing schema 与循环便利层，但业务 capability、effect classification、artifact retention 和 verifier 仍属于应用责任。不要从客户端 SDK 推测云端 scheduler 或策略引擎。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 设计 | 优点 | 结构性风险 | 适用条件 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| Anthropic: Writing effective tools for agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Hugging Face smolagents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 万能 shell/browser | 开放任务覆盖高 | 组合权限巨大，语义难审计 | 强 sandbox、短生命周期 workspace、人工审批 |
+| 细粒度 CRUD | 权限与审计清晰 | 工具数量膨胀、选择混淆 | 稳定业务域、严格合规 |
+| 任务级聚合工具 | 降低调用次数和上下文 | 服务器逻辑更重 | 高频、边界清晰的业务动作 |
+| 动态 tool search | 上下文小、可扩展 | 工具发现本身需治理 | 大型多域工具目录 |
 
+粒度没有全局最优。正确方法是在代表性任务集上同时测 task success、wrong-tool rate、argument validity、unsafe-effect rate、token/latency，并把工具描述视为可版本化模型输入。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Tool Design：让模型拥有可用而可控的双手”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
 ### 实验环境
 
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Tool Design：让模型拥有可用而可控的双手”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
+- Python 3.11–3.13，macOS/Linux，arm64/x86_64；
+- `uv sync --locked --all-groups --no-install-project`；
+- 无网络、无 API key；核心 SUT 为 `ToolContract` validator 与 `ArtifactStore`；
+- 入口 `examples/chapters/ch07_tool_design.py`，单测 `tests/test_knowledge_system.py`。
 
-### Lab 07A — 正常路径
-
-```bash
-PYTHONPATH=src python examples/chapters/ch07_tool_design.py
-```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::tool_design`
-- `examples/chapters/ch07_tool_design.py::main`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a tool contract must state intent, typed arguments, risk, and idempotency", "invariant_holds": true, "observation": {"schema": {"description": "Fetch invoice by immutable identifier", "idempotent": true, "name": "invoice", "parameters": {"properties": {"id": {"type": "integer"}}, "required": ["id"], "type": "object"}, "risk": "low"}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "tool-design", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 07A](../../../labs/core/lab-07A-tool-design.md)。
-
-### Lab 07B — 故障注入
+### Lab 07A：合法合同与内容寻址结果
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch07_tool_design.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch07_tool_design.py
 ```
 
-**本发布包实际输出：**
+实际输出的关键字段为：`contract=billing.invoice_read`、`errors=[]`、`dispatched=true`、`artifact.bytes=1504`，证据等级 `L1_MECHANISM`。重复运行得到同一 SHA-256；它证明机制确定，不证明任一模型的工具选择率。
 
-```json
-{"contained": false, "evidence_level": "L2_DETECTED", "evidence_meaning": "fault_detected_but_not_containment_or_recovery", "fault": true, "fault_injected": true, "invariant": "a tool contract must state intent, typed arguments, risk, and idempotency", "invariant_holds": false, "observation": {"schema": {"description": "do things", "idempotent": true, "name": "invoice", "parameters": {"properties": {"id": {"type": "integer"}}, "required": ["id"], "type": "object"}, "risk": "low"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "tool-design", "system_detected": true}
+### Lab 07B：万能 shell 与伪幂等声明
+
+```bash
+PYTHONPATH=src uv run python examples/chapters/ch07_tool_design.py --fault
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_DETECTED**：被测组件检测到了故障，但没有证明 containment/recovery。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 07B](../../../labs/core/lab-07B-tool-design-fault.md)。
+实际输出包含四个独立理由：`name_must_be_namespaced`、`description_missing_use_and_non_use_boundary`、`capability_scope_not_least_privilege`、`irreversible_effect_requires_reconciliation_contract`；`dispatched=false`，因此为 `L3_CONTAINED`。完整步骤分别见 [Lab 07A](../../../labs/core/lab-07A-tool-design.md) 与 [Lab 07B](../../../labs/core/lab-07B-tool-design-fault.md)。
 
-### 观察与证据
+### 关键断点与验收标准
 
+**关键断点**：在合同验证、capability 收敛、effect 语义判定和 artifact 落盘处分别观察；任一 gate 失败都不得进入 dispatch。**验收标准**：正常路径实际输出必须包含稳定的内容摘要和 `dispatched=true`；故障路径必须返回可定位 reason code、`dispatched=false`且无副作用。
 
 ## 工程场景与系统设计
 
-**教学工程设计输入（不是公开云厂商性能数据）：** 客户支持 Agent 需要从 200 万条知识文档和用户历史中选择证据，再调用受控业务 API。设计输入：100 QPS、检索 p95 150 ms、每次最多 8 个证据块、写工具全部要求幂等键。
+以财务助理为例，不应给它一个“访问 ERP”的总权限。读账单、创建付款草稿、提交付款是三个 contract：读取是 `READ_ONLY/PURE`；草稿是 `REVERSIBLE_WRITE/IDEMPOTENT`；提交是 `IRREVERSIBLE/RECONCILABLE`。只有最后一项要求 action-bound approval、短期凭据、幂等键和外部 receipt。
 
-
-### 上线前必须补齐
-
-- 围绕 **工具契约设计** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `工具契约必须声明意图、参数、风险、幂等性和可观察结果。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+工具目录还应维护 owner、SLO、data classification、contract version、deprecation window 和 eval set。部署时先 shadow 新版本：记录模型会选什么，但不执行副作用；当错选与参数回归通过阈值后再放量。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **错工具**：检查描述重叠和 namespace；不要先加 prompt 补丁。
+- **对参数**：schema 通过却对象不属于租户，定位 semantic/authorization gate。
+- **返回太大**：检查 artifact 化是否发生、preview 是否含来源而不含秘密。
+- **伪幂等**：相同 key 产生多个业务效果，必须修复服务端 ledger，不能靠 Agent 避免重试。
+- **工具结果注入**：把返回内容标为 untrusted observation，禁止提升为 system/developer instruction。
 
-- **万能 shell 暴露过大**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **工具描述像内部 API 文档**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **返回原始日志淹没模型**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错所需最小 trace 是：visible tool-set digest → selected tool/version → canonical args digest → policy decision → effect phase → result/artifact digest → verifier。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+工具性能不能只报平均延迟。至少采集选择阶段 token、schema bytes、tool-search latency、执行 p50/p95/p99、timeout 后 UNKNOWN 比例、artifact bytes、wrong-tool rate 和 verifier failure rate。目录很大时，优先减少重叠工具和动态检索 schema，而不是把数百个定义一次性注入上下文。
 
-- `tool/retrieval p50,p95 latency`
-- `tool error/UNKNOWN rate`
-- `recall@k / evidence coverage`
-- `memory hit/conflict rate`
-- `payload bytes / turn`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Schema` 的生命周期时，要重新验证 **a tool contract must state intent, typed arguments, risk, and idempotency**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “万能 shell 暴露过大”、“工具描述像内部 API 文档”、“返回原始日志淹没模型”：只有正常路径与对应 fault path 都保持 **a tool contract must state intent, typed arguments, risk, and idempotency**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+可靠性预算必须按风险分层：读工具可有限重试；幂等写需稳定 key；不可逆写先持久化 Intent，再调用，再以 ledger 对账。输出裁剪要保留 error class、receipt 和 source handle，不能为了省 token 删掉恢复证据。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 检索只能返回可索引/可访问的数据，不自动保证事实完整性
-- 工具 schema 无法消除外部系统自身的不一致
-- 长期记忆会过期、冲突或包含敏感信息，必须治理
-- 协议标准化互操作，不替代业务授权与审计
+本章离线实验能证明合同拒绝和 artifact identity，不能证明自然语言描述对不同模型同样有效，也没有执行真实 ERP。工具可用性是一项经验性质：应在锁定模型、任务分布和工具集版本上运行多 seed eval。
 
-选择方案时要回到本章边界：如果业务不能接受“万能 shell 暴露过大”，就必须为 `Affordance` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Schema` 决策交给模型，但要用 `错误分类可进入 eval` 保持结果可验证。**Anthropic: Writing effective tools for agents** 与 **OpenAI Agents SDK** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-良好的 Tool schema 能减少误调用，但不能独自解决授权、竞态或未知提交结果。写工具必须额外定义身份、权限、幂等键、超时后的 outcome 语义与可观察的 post-condition。
+使用 OpenAI 的读者可令 `OPENAI_API_KEY` 只存在于进程环境，以 Responses API 发起 tool-selection eval；证据包保存脱敏 request/response item、request ID、model snapshot、tool-set hash、usage 和 oracle，严禁把 key、Authorization header 或完整客户数据写入仓库。无云 key 时，可用本地小 instruct 模型（例如通过 Ollama/vLLM 暴露 OpenAI-compatible endpoint），但必须记录模型文件哈希、量化、推理参数与硬件，并把结果标为 local-provider evidence。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+研究焦点正在从“能否调用工具”转到 tool ecosystem 的可发现性、接口自动优化、不可解任务识别、权限与结果可信度。自动优化工具描述必须受 held-out eval 约束，否则容易对单个模型/任务集过拟合。另一个关键方向是让工具合同携带机器可验证的 risk/effect/provenance 元数据，而不把安全语义藏在自然语言里。
 
-- **[Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761)**：探索模型学习何时调用外部工具以及如何把工具结果纳入后续预测。
-- **[Anthropic: Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)**（official engineering article）：工具接口本身是 Agent 性能与安全的重要变量。
-- **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**（v0.22.0 @ 4df9ecf）：Agent/Runner/Tools/Handoffs/Guardrails/Sessions/HITL/Tracing；0.22.0 包含 runtime hardening。
+### 深度审计与研究证据链：工具能力不等于行动授权
 
-
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- MCP 2026‑07‑28 Specification（2026‑07‑28 GA）：stateless protocol core, MRTR, header routing, cache hints and auth hardening。
-- NIST AI 800‑5: Security Considerations for AI Agents（published 2026‑05‑18）：agent security threats, mitigations, assessment and adoption barriers。
-
-**本章吸收的变化。** 工具设计的关键不是函数数量，而是把 capability、schema、风险与结果证据做成模型可用、Runtime 可控的边界。高风险工具应自动触发更强 policy/approval/verifier。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Affordance`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **a tool contract must state intent, typed arguments, risk, and idempotency** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“万能 shell 暴露过大”和“工具描述像内部 API 文档”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **工具契约设计** 的可验证性。Anthropic Writing Effective Tools 强调工具接口质量会直接影响 Agent 行为；这与本章 schema/risk/idempotency 不变量一致。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Affordance` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“万能 shell 暴露过大”与“工具描述像内部 API 文档”同时发生时，**Anthropic: Writing effective tools for agents** 与 **OpenAI Agents SDK** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Schema` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“返回原始日志淹没模型”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：工具契约设计
-
-本章重新审计后的核心结论是：**工具契约必须声明意图、参数、风险、幂等性和可观察结果。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[Semantic Transactions for Tool-Using LLM Agents](https://arxiv.org/abs/2606.17573)**：把不可逆工具副作用抽象成语义事务，支撑 UNKNOWN、staging 与 validation 讨论。
-- **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**：提供 Agent/Runner/Tools/HITL/Tracing/Sessions 的公开实现边界。
-- **[Microsoft Agent Framework Checkpoints](https://learn.microsoft.com/en-us/agent-framework/workflows/checkpoints)**：把 checkpoint 定义为 workflow resume 所需的 executor state、pending messages/requests 与 shared state。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI tools、MCP tools、smolagents Tool、ADK tools 可以对照 schema 表达力和运行时治理能力。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证工具契约设计的 schema、证据或记忆边界；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+Toolformer 与现代 API 说明模型如何产生调用；Anthropic 的工程资料说明接口设计会显著改变 Agent 表现；本章实现补足注册审计、capability 与 artifact 边界。三类证据不能互相替代：论文不是生产权限证明，SDK 文档不是业务 effect 证明，离线 validator 也不是模型质量证明。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+工具是一个受治理的动作合同，而不是 prompt 附件。高质量系统将“候选调用”“授权”“副作用”“观测”拆开，并让每一步留下可验证身份。
 
-1. 本章不变量是：**a tool contract must state intent, typed arguments, risk, and idempotency**；
-2. `Affordance` 必须是可观察软件边界，而不是 prompt 约定；
-3. `工具元数据包含 risk/idempotent` 与 `错误分类可进入 eval` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题：
 
-### 常见误区
+1. 为什么 `additionalProperties=false` 仍不能阻止跨租户访问？
+2. 一个工具何时应拆成读/草稿/提交三个接口？
+3. 怎样建立 tool-selection eval，避免只测 happy path？
+4. artifact preview 应保留哪些字段，删除哪些字段？
+5. provider tool-call ID 与本地 action ID 为什么不能合并？
 
-- 万能 shell 暴露过大
-- 工具描述像内部 API 文档
-- 返回原始日志淹没模型
-
-### 思考题与实践
-
-- **Why：** 为什么 `Affordance` 不能只靠模型“记住”？
-- **What if：** 如果在 `工具元数据包含 risk/idempotent` 与 `错误分类可进入 eval` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch07_tool_design.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **Tool Runtime：调度、权限、超时、重试与副作用语义**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+参考答案见[附录 H：第二篇问题参考答案](../appendix-h-part2-solutions.html#part2-solutions-ch07)。

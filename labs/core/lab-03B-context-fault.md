@@ -1,17 +1,12 @@
-# Lab 03B — Context Engineering：信息进入模型之前已经决定了一半结果｜故障注入
+# Lab 03B — 网页指令污染与跨租户记录双故障｜故障注入
 
 ## 实验目标
 
-验证不变量：**context compaction must preserve higher-priority instructions and task state**
+同时注入两类高风险 context fault：不可信网页内容被标成 system channel，以及 tenant-b 记录进入 tenant-a 候选集。要求两者在评分前被隔离。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 与 API key。恶意 URL 使用 `.invalid` fixture，不发出网络请求。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与故障模型
 
-入口：`examples/chapters/ch03_context.py`；核心机制：`src/agentlab/course_scenarios.py::context`。
+入口 `examples/chapters/ch03_context.py --fault`。`web-injection` 的 priority 很高且文本要求绕过审批；`other-tenant` 也具有高优先级。这样可证明安全边界不是靠低相关性偶然排除。
 
-本实验输入由 `context` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::context`
-- `examples/chapters/ch03_context.py::main`
-
-## 实验 B：故障注入路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch03_context.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "context compaction must preserve higher-priority instructions and task state", "invariant_holds": false, "observation": {"budget": 2, "dropped": ["evidence", "history"], "kept": ["system", "task"]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "context", "system_detected": false}
+{"excluded": {"old-chat": "token_budget", "other-tenant": "tenant_mismatch", "web-injection": "untrusted_instruction_channel"}, "selected": ["policy", "task", "trace", "runbook"], "used_tokens": 86}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+在 `ContextAssembler.assemble` 的 tenant 与 untrusted-channel 分支停下；确认两个恶意记录从未进入 utility 排序；在模型调用边界确认 selected 中不存在其 ID。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+两条故障均被独立 reason code 检测，selected 集保持合法，预算不超限；完整结果必须为 `system_detected=true/contained=true/invariant_holds=true/L3_CONTAINED`。
+
+## 证据解释与上限
+
+这是两种已知元数据故障的 L3 containment，不是通用 prompt-injection 防御证明。若来源元数据本身被伪造，还需内容隔离、授权和工具层防线。
+
+## 进阶实验
+
+让恶意文本进入合法 evidence channel，证明它可以作为数据被引用但不能改变工具权限；再模拟 provenance 缺失，要求记录默认降为 untrusted 而非继承 system 权威。

@@ -1,21 +1,18 @@
 digraph G {
-graph [rankdir=TB,bgcolor="transparent",pad="0.15",nodesep="0.28",ranksep="0.42"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=16,color="#34495e",fillcolor="#f8fbfd"];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-s0 [label="Step 1  接收输入"];
-s1 [label="Step 2  source_id/span/score 显式化"];
-s2 [label="Step 3  BM25+dense 可替换"];
-s3 [label="Step 4  引用校验进 eval"];
-s4 [label="Step 5  索引版本可复现"];
-s5 [label="Step 6  写入证据"];
-s6 [label="Step 7  验证结果"];
-s0->s1;
-s1->s2;
-s2->s3;
-s3->s4;
-s4->s5;
-s5->s6;
-fail [shape=diamond,label="故障/不确定?",fillcolor="#fdecea"];
-s5->fail [style=dashed];
-fail->s0 [label="retry only if safe",style=dashed,color="#b03a2e"];
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.3",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+query [label="Query + Subject Scope",fillcolor="#fff4e6"];
+filter [label="Tenant / ACL / Valid Time",fillcolor="#fdecea"];
+score [label="BM25 真实计算\nTF · IDF · Length Norm",fillcolor="#edf5ff"];
+threshold [shape=diamond,label="Score/Coverage 足够?",fillcolor="#fdecea"];
+hits [label="Hits + Provenance",fillcolor="#eef9f1"];
+abstain [label="NO_EVIDENCE / 澄清",fillcolor="#fff4e6"];
+verify [label="Claim-Evidence Verifier",fillcolor="#f6efff"];
+query->filter;
+filter->score;
+score->threshold;
+threshold->hits [label="是"];
+threshold->abstain [label="否"];
+hits->verify;
 }

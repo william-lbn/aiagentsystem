@@ -148,6 +148,12 @@
     "url": "https://www.bankofengland.co.uk/financial-stability-report/2026/july-2026",
     "use": "autonomous AI in financial markets"
   },
+  "bm25-foundations": {
+    "name": "The Probabilistic Relevance Framework: BM25 and Beyond",
+    "pin": "Foundations and Trends in Information Retrieval 2009; observed 2026-09-11",
+    "url": "https://dl.acm.org/doi/10.1561/1500000019",
+    "use": "lexical retrieval theory and BM25"
+  },
   "browsecomp-plus": {
     "name": "BrowseComp-Plus",
     "pin": "arXiv:2508.06600; observed 2026-09-11",
@@ -190,6 +196,12 @@
     "status": "DOC_VERIFIED",
     "url": "https://arxiv.org/abs/2602.13255",
     "used_for": "multi-agent deadlock/coordination"
+  },
+  "dpr": {
+    "name": "Dense Passage Retrieval for Open-Domain Question Answering",
+    "pin": "arXiv:2004.04906; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2004.04906",
+    "use": "dense retrieval baseline"
   },
   "dsh": {
     "name": "DeepSeek Harness",
@@ -516,6 +528,12 @@
     "url": "https://arxiv.org/abs/2210.03629",
     "use": "foundational reasoning/action trajectories"
   },
+  "rag-original": {
+    "name": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    "pin": "arXiv:2005.11401; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2005.11401",
+    "use": "retrieval-augmented generation foundation"
+  },
   "reflexion-2023": {
     "name": "Reflexion: Language Agents with Verbal Reinforcement Learning",
     "pin": "arXiv:2303.11366; 2023",
@@ -534,6 +552,36 @@
     "status": "DOC_VERIFIED",
     "url": "https://arxiv.org/abs/2606.17573",
     "used_for": "tool-runtime, checkpoint/journal, effect-recovery"
+  },
+  "rrf": {
+    "name": "Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods",
+    "pin": "SIGIR 2009 paper; observed 2026-09-11",
+    "url": "https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf",
+    "use": "hybrid retrieval rank fusion"
+  },
+  "openai-responses-create": {
+    "name": "OpenAI Responses API create reference",
+    "pin": "official reference observed 2026-09-11",
+    "url": "https://developers.openai.com/api/reference/cli/resources/responses/methods/create",
+    "use": "Responses input/output items, tools, conversations, structured output and usage contract"
+  },
+  "python-asyncio-tasks": {
+    "name": "Python asyncio coroutines and tasks",
+    "pin": "Python 3 documentation; observed 2026-09-11",
+    "url": "https://docs.python.org/3/library/asyncio-task.html",
+    "use": "structured concurrency, task cancellation and cleanup semantics"
+  },
+  "oci-runtime-spec": {
+    "name": "Open Container Initiative Runtime Specification",
+    "pin": "main source observed 2026-09-11",
+    "url": "https://github.com/opencontainers/runtime-spec",
+    "use": "Linux namespaces, cgroups, capabilities and filesystem isolation contract"
+  },
+  "mini-swe-agent": {
+    "name": "mini-SWE-agent",
+    "pin": "source observed 2026-09-11",
+    "url": "https://github.com/SWE-agent/mini-swe-agent",
+    "use": "minimal coding agent and benchmark harness comparison"
   },
   "smolagents": {
     "name": "Hugging Face smolagents",

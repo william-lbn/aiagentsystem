@@ -73,7 +73,7 @@ HTML/EPUB 保留 SVG；PDF/XeLaTeX 通过 `scripts/filters/pdf_diagrams.lua` 在
 
 PDF/Workbook 明确使用 `ctexbook`，Pandoc H1 以 chapter 语义处理。主书通过 `book_structure.lua` 把 canonical part heading 转成 `\part`、在附录边界进入 `\appendix`；print TOC depth 固定为 1，而 HTML/Website 可保留 depth 3。`book-style.tex` 负责章/节排版、页眉页脚、heading keep-with-next 与代码折行，不承载正文。
 
-`qa_pdf_structure.py` 验证 7 个 part page、40 个唯一 chapter start page、A–F appendices、紧凑总目录和确定性 PDF metadata；`qa_workbook_structure.py` 验证 80 个 Lab ID 与 A/B 区分。
+`qa_pdf_structure.py` 验证 7 个 part page、40 个唯一 chapter start page、A–H appendices、紧凑总目录和确定性 PDF metadata；`qa_workbook_structure.py` 验证 80 个 Lab ID 与 A/B 区分。
 
 ## 7. QA 不变量
 

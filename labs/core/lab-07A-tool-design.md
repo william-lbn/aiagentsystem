@@ -1,52 +1,47 @@
-# Lab 07A — Tool Design：让模型拥有可用而可控的双手｜正常路径
+# Lab 07A — 工具合同审计与内容寻址结果｜正常路径
 
 ## 实验目标
 
-验证不变量：**a tool contract must state intent, typed arguments, risk, and idempotency**
+工具必须声明有界语义、最小 capability、risk/effect 和输出形状；大结果不直接占满模型上下文。本实验真实执行 contract validator 与 artifact store，不调用或伪装大模型。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；macOS/Linux，arm64/x86_64；
+- 运行 `uv sync --locked --all-groups --no-install-project`；
+- 不需要网络、Docker、GPU 或 API key；
+- SUT：`src/agentlab/knowledge_system.py::{validate_tool_contract,ArtifactStore}`；
+- 入口：`examples/chapters/ch07_tool_design.py`。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+在仓库根目录执行 `uv sync --locked --all-groups --no-install-project`；后续命令均使用锁定环境，不读取任何 provider 密钥。
+
+## 固定输入
+
+`billing.invoice_read` 带明确 use/do-not-use 描述、对象 schema、`billing.invoice.read` capability、`READ_ONLY/PURE` 语义及 512-byte 内联上限。工具生成 1504-byte JSON。
 
 ## 实验代码
-
-入口：`examples/chapters/ch07_tool_design.py`；核心机制：`src/agentlab/course_scenarios.py::tool_design`。
-
-本实验输入由 `tool_design` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::tool_design`
-- `examples/chapters/ch07_tool_design.py::main`
-
-## 实验 A：正常路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch07_tool_design.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 本仓库实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a tool contract must state intent, typed arguments, risk, and idempotency", "invariant_holds": true, "observation": {"schema": {"description": "Fetch invoice by immutable identifier", "idempotent": true, "name": "invoice", "parameters": {"properties": {"id": {"type": "integer"}}, "required": ["id"], "type": "object"}, "risk": "low"}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "tool-design", "system_detected": false}
+{"contained":false,"evidence_level":"L1_MECHANISM","fault":false,"invariant_holds":true,"observation":{"artifact":{"artifact_id":"sha256:cbb40bb0c9460ee7c9f1b7308870a50117af71a8134e6e12881c1e5eae409dca","bytes":1504,"preview_chars":120,"sha256":"cbb40bb0c9460ee7"},"contract":"billing.invoice_read","dispatched":true,"errors":[]},"passed":true,"scenario":"tool-design"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+1. `validate_tool_contract`：确认所有 error gate 均为空；
+2. `ArtifactStore.put`：观察 SHA-256 由真实 bytes 计算；
+3. `course_scenarios.tool_design`：确认只有 validator 通过才将 `dispatched` 置真。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；`errors=[]`、`dispatched=true`、artifact bytes/hash 稳定。L1 只证明离线机制，不证明某个模型会选对工具。
+
+## 深化实验
+
+修改一字节 line item，验证 artifact ID 变化；重复写入相同 bytes，验证 ID 相同。再接入一个锁定版本的小模型或 OpenAI Responses tool calling，单独报告 tool-selection accuracy，不把 provider 结果混入本 lab。

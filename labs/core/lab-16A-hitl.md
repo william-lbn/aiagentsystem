@@ -1,54 +1,37 @@
-# Lab 16A — Human-in-the-Loop：把不可逆动作放进可恢复审批｜正常路径
+# Lab 16A — HITL：绑定动作的持久审批｜正常路径
 
 ## 实验目标
 
-验证不变量：**high-risk side effects cannot execute before a durable approval decision**
+真实写入 checkpoint/journal，暂停高风险工具，使用准确 `action_id` 恢复，并验证 effect 只发生一次。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；本机临时文件 store；
+- `AgentRuntime` + `JsonCheckpointStore` + `EffectJournal`；
+- 无网络/API key；证据上限 `L1_MECHANISM`。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch16_hitl.py`；核心机制：`src/agentlab/course_scenarios.py::hitl`。
-
-本实验输入由 `hitl` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::hitl`
-- `examples/chapters/ch16_hitl.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 A：正常路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch16_hitl.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "high-risk side effects cannot execute before a durable approval decision bound to the exact action", "invariant_holds": true, "observation": {"action_id": "70904eadfe84a671a7f516a7ca7fcfa16f7debad5c37b10f99a3f980d28a2f9c", "after": "FINISHED", "before": "WAITING_APPROVAL", "effect_count": 1}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "hitl", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"observation":{"action_bound":true,"after":"FINISHED","before":"WAITING_APPROVAL","effect_count":1,"provided_action_matches":true,"state_version":6},"passed":true,"scenario":"hitl"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+检查 pending approval 的 action ID、resume 时 ID 比较、工具入口前 policy gate、effect journal 与最终 checkpoint version。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+先暂停后完成，`action_bound=true`、`effect_count=1`。本实验不证明 OAuth principal、签名或多人审批。

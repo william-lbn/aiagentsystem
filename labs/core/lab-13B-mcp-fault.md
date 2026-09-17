@@ -1,52 +1,37 @@
-# Lab 13B — MCP：把外部工具与资源接成协议边界｜故障注入
+# Lab 13B — MCP 版本冲突与 MRTR 状态替换｜故障注入
 
 ## 实验目标
 
-验证不变量：**protocol metadata and tool contracts are transport boundaries and must be validated**
+Body/meta 声明 `2026-07-28`，HTTP header 改为 `2025-11-25`；同时把 Server 返回的 opaque requestState 替换为攻击者值。两个故障都必须在 handler 完成前拒绝。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13，macOS/Linux、arm64/x86_64；Core 无网络/API key，协议版本与 Lab 13A 一致。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；版本冲突与 state 替换是两个独立故障，验收时必须分别观测 reason。
 
 ## 实验代码
-
-入口：`examples/chapters/ch13_mcp.py`；核心机制：`src/agentlab/course_scenarios.py::mcp`。
-
-本实验输入由 `mcp` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::mcp`
-- `examples/chapters/ch13_mcp.py::main`
-
-## 实验 B：故障注入路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch13_mcp.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "MCP 2026-07-28 per-request metadata and HTTP protocol version must agree", "invariant_holds": true, "observation": {"errors": ["header_body_version_mismatch"], "headers": {"mcp-method": "tools/call", "mcp-name": "lookup", "mcp-protocol-version": "2025-11-25"}, "request": {"id": "req-13", "jsonrpc": "2.0", "method": "tools/call", "params": {"_meta": {"io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "agentlab-core", "version": "13.1"}, "io.modelcontextprotocol/protocolVersion": "2026-07-28"}, "arguments": {"id": 7}, "name": "lookup"}}, "valid": false}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "mcp", "system_detected": true}
+{"contained":true,"evidence_level":"L3_CONTAINED","fault":true,"invariant_holds":true,"observation":{"mrtr_error":"request_state_mismatch","mrtr_result":null,"protocol_errors":["header_body_version_mismatch"],"protocol_version":"2026-07-28","request_valid":false},"oracle_detected":true,"passed":true,"scenario":"mcp","system_detected":true}
 ```
 
-### 验收标准
+## 验收标准
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+Protocol validator 必须给出精确 mismatch；MRTR 不得产生 complete result；两条故障均 system-detected/contained。若只在测试脚本比较字段、Server 仍执行，则最多 L2。
 
-### 进阶修改
+## 调试断点
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+分别变更 version、method、name、缺 meta capabilities、缺 input response、超 round budget，确认 reason 独立。再运行官方 SDK 实验的 header/body mismatch，比较教学 validator 与 SDK classifier 的边界。
+
+## Claim ceiling
+
+Core Lab 不覆盖 OAuth、远程网络、跨语言、Tasks durability 或副作用 exactly-once。现有官方 L5 也仅 Python↔Python、两进程、loopback、无鉴权；报告时必须保留该上限。

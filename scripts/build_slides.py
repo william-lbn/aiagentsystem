@@ -141,7 +141,7 @@ def parse_chapter(path: Path):
     s = path.read_text(encoding="utf-8")
     m = re.search(r"^# (.+)", s, re.M)
     ttl = m.group(1) if m else path.stem
-    thesis = re.search(r"> \*\*本章核心判断\*\*：(.+)", s)
+    thesis = re.search(r"> \*\*(?:本章核心判断|本章命题)\*\*：(.+)", s)
     thesis = clean_md(thesis.group(1)) if thesis else ""
     inv = re.search(r"> \*\*Invariant\*\*[：:]\s*(.+)", s)
     invariant = clean_md(inv.group(1)) if inv else ""

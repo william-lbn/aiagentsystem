@@ -1,17 +1,12 @@
-# Lab 02A — 模型基座：Token、结构化生成、工具调用与推理接口｜正常路径
+# Lab 02A — 三层严格解码一个工具决定｜正常路径
 
 ## 实验目标
 
-验证不变量：**model output crossing a software boundary must be parsed and validated**
+验证工具候选必须依次通过 JSON 语法、判别联合 schema 和 capability/置信策略语义检查，合格的 `schedule_maintenance` 决定才会成为可调度意图。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 或 API key。实验使用标准库 `json` 与仓库 `StrictDecisionDecoder`，不宣称评估真实模型。
 
 ## 环境准备
 
@@ -20,33 +15,38 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与输入
 
-入口：`examples/chapters/ch02_model_substrate.py`；核心机制：`src/agentlab/course_scenarios.py::model_substrate`。
+- 入口：`examples/chapters/ch02_model_substrate.py`
+- 场景：`course_scenarios.py::model_substrate`
+- SUT：`foundation_system.py::StrictDecisionDecoder`
 
-本实验输入由 `model_substrate` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+输入声明 `kind=tool`、`tool=schedule_maintenance`、`service=payments-api`、整数 `window_minutes=30`、`confidence=0.94`；本地合同要求 `{service: str, window_minutes: int}` 且最低 confidence 0.70。
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::model_substrate`
-- `examples/chapters/ch02_model_substrate.py::main`
-
-## 实验 A：正常路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch02_model_substrate.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "model output crossing a software boundary must be parsed and validated", "invariant_holds": true, "observation": {"object": {"args": {"q": "agent runtime"}, "tool": "search"}, "parsed": true, "token_proxy": 6}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "model-substrate", "system_detected": false}
+{"effect_dispatched": true, "validation": {"accepted": true, "errors": [], "stage": "accepted"}}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+依次检查 `StrictDecisionDecoder.decode` 的 JSON parse、unknown fields、discriminator、参数集合/类型、tool capability 和 confidence policy。最后在场景的 `effect_dispatched` 赋值处确认它完全由 `accepted` 导出。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+`accepted=true`、`stage=accepted`、errors 为空，解析后的 `window_minutes` 仍为整数 30，stdout 为 `L1_MECHANISM`。若实现通过字符串 coercion 才成功，视为失败。
+
+## 证据解释与上限
+
+实验只证明本地 decoder 对固定合法 payload 的合同。真实 OpenAI/其他 provider 运行必须另外记录模型快照、请求 ID、schema、时间与原始 item，API key 只能从环境变量读取。
+
+## 进阶实验
+
+增加带 `schema_version` 的 `final|tool|abstain` 判别联合；建立旧版迁移策略，并测试未知 discriminator 默认拒绝。

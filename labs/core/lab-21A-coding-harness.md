@@ -1,52 +1,38 @@
-# Lab 21A — Codex、Pi 与 Claude Code 类 Harness 解剖｜正常路径
+# Lab 21A — Session 分支与压缩后恢复｜正常路径
 
 ## 实验目标
 
-验证不变量：**session branching/compaction must retain ancestry and task-critical state**
+真实创建 SQLite session tree，写入 constraint/failure/decision，关闭连接后重新打开并压缩；证明 ancestry 与任务关键事实仍可恢复。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13；标准库 `sqlite3`；macOS/Linux、arm64/x86_64 均可；无需模型、网络、Docker 或 API key。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch21_coding_harness.py`；核心机制：`src/agentlab/course_scenarios.py::coding_harness`。
+入口 `examples/chapters/ch21_coding_harness.py`；机制位于 `src/agentlab/specialized_system.py::SessionLedger`，场景位于 `course_scenarios.py::coding_harness`。
 
-本实验输入由 `coding_harness` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```bash
+python examples/chapters/ch21_coding_harness.py
+```
+
+实际输出的核心字段：
+
+```json
+{"ancestry":["root","branch"],"fact_kinds":["constraint","failure","decision"],"orphan_rows":0,"reopened_from_sqlite":true,"evidence_level":"L1_MECHANISM","passed":true}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::coding_harness`
-- `examples/chapters/ch21_coding_harness.py::main`
+在 `SessionLedger.create`、`record`、`ancestry` 和 `compact` 停下；确认 `close()` 后新 connection 从文件读取，而不是沿用 Python 对象。
 
-## 实验 A：正常路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch21_coding_harness.py
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "session branching/compaction must retain ancestry and task-critical state", "invariant_holds": true, "observation": {"compact": "inspect code; patch and test", "nodes": [{"id": "1", "parent": null, "summary": "read issue"}, {"id": "2", "parent": "1", "summary": "inspect code"}, {"id": "3", "parent": "2", "summary": "patch and test"}], "valid_tree": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "coding-harness", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
-
-### 结果解释
-
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；ancestry 为 `root → branch`；三类事实都存在；digest 为 64 位 SHA-256。证据只覆盖本地 lineage/compaction，不代表真实 Coding Agent 任务成功率。

@@ -1,366 +1,216 @@
 # Tool Runtime：调度、权限、超时、重试与副作用语义
 
-> **本章核心判断**：Runtime 负责把模型的 tool intent 安全地变成现实世界动作，核心是策略、沙箱、幂等、超时、重试和 UNKNOWN 处理。
+> **本章命题**：Tool Runtime 的首要任务不是“把函数调通”，而是在进程、网络或服务随时失效时，仍不把未知效果误判为失败并盲目重试。正确核心是 Intent、Effect Journal、幂等身份、UNKNOWN 和 reconciliation。
 
-上一章：Tool Design：让模型拥有可用而可控的双手。本章把前一章已经建立的能力进一步推进到 `Dispatch`；下一章将进入：RAG 基础：检索、证据与生成边界。
+上一章定义了工具 ABI；本章把一次获准动作推进到真实外部效果，并给出崩溃与响应丢失时的恢复语义。
 
-![Tool Runtime：调度、权限、超时、重试与副作用语义：系统边界与组件关系](../../assets/diagrams/08-tool-runtime-architecture.svg)
+![Tool Runtime 的授权、执行、效果与对账边界](../../assets/diagrams/08-tool-runtime-architecture.svg)
 
 ## 问题背景与学习目标
 
-Runtime 负责把模型的 tool intent 安全地变成现实世界动作，核心是策略、沙箱、幂等、超时、重试和 UNKNOWN 处理。
+远程写请求存在一个不可消除的时间窗：服务端已经提交，客户端却在收到响应前超时。若 Runtime 把 timeout 当成“未执行”并重试，支付、发信、建单或删除可能重复发生；若一律不重试，又会把真正未到达的请求永久丢失。这个问题不是更强模型可以推理解决的，因为模型看不到远端事实。
 
-在本章的 `Dispatch` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章要求读者能够：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Runtime 负责把模型的 tool intent 安全地变成现实世界动作，核心是策略、沙箱、幂等、超时、重试和 UNKNOWN 处理。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `ambiguous side effects must be represented as UNKNOWN rather than guessed` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 08A` / `Lab 08B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 明确区分 `PREPARED/COMMITTED/NOT_APPLIED/UNKNOWN`；
+- 在工具调用前持久化 canonical Intent，而不是事后补日志；
+- 判断何时可 retry、何时必须 reconcile、何时需要 compensate；
+- 用 action ID、idempotency key、args digest 与 receipt 连接本地和远端；
+- 设计取消、deadline、bulkhead 与权限 scope，而不混淆 transport 和 effect。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+### Timeout 是观测缺失
 
-### Dispatch
+Timeout 只说明调用方在 deadline 前没有收到可接受响应。它不证明远端未接收、未开始或未提交。因此写工具的 timeout 默认进入 UNKNOWN，而非 FAILED。
 
-**定义。** Dispatch 是 Runtime 把已验证的 tool intent 路由到具体实现的过程，包括版本选择、 租户上下文、超时和 tracing。
+### 幂等键属于业务操作
 
-**系统责任。** 它应在模型输出与真实 executor 之间形成稳定边界，使本地函数、远程 API、MCP server 或 sandbox command 能共享统一事件模型。
+重用 HTTP request ID 不一定防止重复业务效果。稳定 key 必须绑定 canonical action identity；服务端 ledger 对同一 key 返回同一 receipt，且需要定义 key 的保留窗口、作用域和参数冲突行为。
 
-**失败边界。** 直接由模型选择 URL/命令并绕过 dispatcher，会失去统一权限、审计和错误语义。
+### Reconciliation 重新观察权威系统
 
-### Policy
+对账不是“再调用一次写接口”，而是查询能够回答 effect 是否存在的权威账本。查询结果将 UNKNOWN 收敛到 COMMITTED 或 NOT_APPLIED。没有查询面时，系统只能暂停、升级人工或执行领域特定恢复流程。
 
-**定义。** Policy 是执行前的确定性允许/拒绝逻辑，依据主体身份、tool、参数、资源、时间、预算和审批状态判断。
+### Compensation 不是回滚
 
-**系统责任。** Policy engine 应独立于模型，必要时返回可解释 deny reason 或需要人工确认的 challenge。
-
-**失败边界。** 把 policy 写成“请勿删除生产数据”的 prompt 不具备强制力，也无法审计谁授予了权限。
-
-### Timeout
-
-**定义。** Timeout 是调用在规定时间内没有得到足够完成证据时的 Runtime 状态，而不是等同于失败。
-
-**系统责任。** 读操作超时通常可重试；写操作超时必须区分 NOT_APPLIED、COMMITTED 和 UNKNOWN，并结合 idempotency/reconciliation。
-
-**失败边界。** 最危险的错误是 timeout 后立即重试非幂等写入，从而制造重复 effect。
-
-### Idempotency
-
-**定义。** Idempotency 表示相同 logical action 被重复提交时不会产生额外业务效果，通常通过 idempotency key、dedupe table 或业务唯一约束实现。
-
-**系统责任。** Agent Runtime 应为可能重放/重试的 effect 分配稳定 action_id，并让外部系统或 adapter 识别它。
-
-**失败边界。** 如果下游不支持幂等，Runtime 至少需要 query/reconciliation 或人工确认，否则 crash recovery 无法安全自动化。
+外部世界通常不支持数据库式原子回滚。补偿是一项新的、有权限、有风险的动作，例如退款不是删除原支付。它需要自己的 Intent、receipt 和 verifier。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：ambiguous side effects must be represented as UNKNOWN rather than guessed
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `UNKNOWN 写操作自动重试` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “UNKNOWN 写操作自动重试”、“HTTP 200 当作业务成功”、“凭据进入模型上下文” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Dispatch** 与 **Policy** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“UNKNOWN 写操作自动重试”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Dispatch 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Policy 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `执行前检查策略`、`工具 span 记录 latency/status` 以及对不变量 **ambiguous side effects must be represented as UNKNOWN rather than guessed** 的检查。
-
-**What if。** 一旦“HTTP 200 当作业务成功”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+对一个 action $a$，本地知识状态为：
 
 $$
-INTENT\rightarrow EXECUTING\rightarrow\{COMMITTED,NOT\_APPLIED,UNKNOWN\}
+K(a)\in\{PREPARED,COMMITTED,NOT\_APPLIED,UNKNOWN\}
 $$
 
-工具 Runtime 的核心不是“是否抛异常”，而是对外部副作用结果建立可恢复的 outcome state machine。
+安全转移包括：
 
-**可证伪假设。** 显式 UNKNOWN + idempotency/reconciliation 比 timeout 后直接 retry 更能降低重复副作用。
+$$
+PREPARED\rightarrow\{COMMITTED,NOT\_APPLIED,UNKNOWN\}
+$$
 
-**建议测量。** unknown-outcome rate、duplicate-effect rate、reconciliation success、idempotency hit rate。
+$$
+UNKNOWN\xrightarrow{reconcile}\{COMMITTED,NOT\_APPLIED\}
+$$
+
+不允许从 COMMITTED 返回 PREPARED，也不允许 UNKNOWN 在无新证据时直接标成 NOT_APPLIED。可重试条件应表达为：
+
+$$
+Retry(a) \iff K(a)=NOT\_APPLIED \lor (Idempotent(a)\land KeyValid(a))
+$$
+
+**不变量**：an ambiguous remote write must enter UNKNOWN and be reconciled before retry。
+
+这与“exactly once delivery”不同。网络通常只能给 at-least-once 或 at-most-once 传递；业务层通过稳定身份、去重 ledger 和对账获得“单一可观察效果”。
 
 ## 关键机制与执行流程
 
-![Tool Runtime：调度、权限、超时、重试与副作用语义：正常路径与故障恢复流程](../../assets/diagrams/08-tool-runtime-flow.svg)
+![响应丢失后从 UNKNOWN 经权威 ledger 对账恢复](../../assets/diagrams/08-tool-runtime-flow.svg)
 
-**Step 1 — 执行前检查策略。** 这一阶段可能改变系统或外部环境，因此 `执行前检查策略` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **ambiguous side effects must be represented as UNKNOWN rather than guessed**。
+执行链如下：
 
-**Step 2 — 高风险动作先 journal。** 这一阶段可能改变系统或外部环境，因此 `高风险动作先 journal` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **ambiguous side effects must be represented as UNKNOWN rather than guessed**。
+1. 校验 args，并生成 `action_id`、`args_sha256`、`idempotency_key`；
+2. 以 durable append 保存 PREPARED，确保崩溃恢复时知道“可能即将发生什么”；
+3. 取得仅适用于该对象/动作的短期凭据并调用远端；
+4. 收到可信 receipt，写 COMMITTED；明确拒绝且能证明未应用，写 NOT_APPLIED；
+5. 连接断开、deadline、响应解析失败等模糊结果写 UNKNOWN；
+6. reconciliation worker 查询远端 ledger，将 UNKNOWN 收敛；
+7. verifier 检查业务后置条件，必要时创建新的 compensation action。
 
-**Step 3 — UNKNOWN 进入 reconcile。** `UNKNOWN 进入 reconcile` 是“Tool Runtime：调度、权限、超时、重试与副作用语义”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Timeout` 是否仍满足 **ambiguous side effects must be represented as UNKNOWN rather than guessed**。
-
-**Step 4 — 工具 span 记录 latency/status。** `工具 span 记录 latency/status` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-在本章的 `Dispatch` 场景中，**最后一步 — 验证。** verifier 针对 `Idempotency` 检查本章不变量 **ambiguous side effects must be represented as UNKNOWN rather than guessed**。如果“UNKNOWN 写操作自动重试”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **执行前检查策略 → 高风险动作先 journal → UNKNOWN 进入 reconcile → 工具 span 记录 latency/status** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“UNKNOWN 写操作自动重试”尤其要检查动作前后的证据是否足以闭合不变量 **ambiguous side effects must be represented as UNKNOWN rather than guessed**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Dispatch` 有关的纯计算状态通常可以重算；一旦 `高风险动作先 journal` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **ambiguous side effects must be represented as UNKNOWN rather than guessed**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+取消信号只取消仍可取消的本地等待；若远端可能已提交，取消后仍需对账。用户点击“停止”不等于外部世界自动回滚。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Tool Runtime：调度、权限、超时、重试与副作用语义')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('tool-runtime', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+`EffectController` 先核对 Intent 中的参数摘要，再持久化 PREPARED：
 
 ```python
-def tool_runtime(fault=False):
-    @tool("Remote write", risk="high", idempotent=False)
-    def write(x: str):
-        if fault:
-            raise TimeoutError("response lost after send")
-        return {"written": x}
-
-    reg = ToolRegistry(); reg.register(write)
-    r = reg.execute("write", {"x": "v"})
-    condition = (r.status == "COMMITTED") if not fault else \
-        (r.status == "UNKNOWN" and r.retryable is False)
-    return _ok("tool-runtime", fault,
-               {"status": r.status, "retryable": r.retryable, "error": r.error},
-               "ambiguous side effects must be represented as UNKNOWN rather than guessed",
-               condition)
+def execute(self, intent, args, *, lose_reply=False):
+    if sha256_json(args) != intent.args_sha256:
+        raise ValueError("intent_args_digest_mismatch")
+    self.journal.append(EffectRecord(EffectPhase.PREPARED, intent.action_id))
+    try:
+        receipt = self.remote.apply(intent, args, lose_reply=lose_reply)
+    except TimeoutError as exc:
+        record = EffectRecord(EffectPhase.UNKNOWN, intent.action_id, reason=str(exc))
+    else:
+        record = EffectRecord(EffectPhase.COMMITTED, intent.action_id, receipt=receipt)
+    self.journal.append(record)
+    return record
 ```
 
+对账只接受当前状态为 UNKNOWN 的 action：
 
-这里最关键的不是捕获 `TimeoutError`，而是**拒绝从 transport timeout 推导业务失败**。对 `idempotent=False` 的写操作，响应丢失意味着 outcome 可能是 COMMITTED，也可能是 NOT_APPLIED；在获得外部 observation 或幂等键去重证据之前，`retryable` 必须保持 `False`。即便工具声明幂等，Runtime 也仍应把 UNKNOWN 显式暴露给恢复策略，而不是把“可安全重试的提示”误写成“已经证明失败”。
+```python
+def reconcile(self, intent):
+    current = self.journal.latest(intent.action_id)
+    if current is None or current.phase is not EffectPhase.UNKNOWN:
+        raise ValueError("reconcile_requires_unknown")
+    receipt = self.remote.lookup(intent.idempotency_key)
+    phase = EffectPhase.COMMITTED if receipt else EffectPhase.NOT_APPLIED
+    record = EffectRecord(phase, intent.action_id, receipt=receipt)
+    self.journal.append(record)
+    return record
+```
 
-
-### 简化假设与不能省略的机制
-
+故障实验的 remote ledger 确实先提交一条效果，再故意丢失 reply；它不是直接抛出一个发生在调用前的 mock exception。因此实验能够验证最危险的 “commit succeeded, acknowledgement lost” 窗口。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| OpenAI Codex CLI | `0.139.0 historical reproducibility pin` | 从 Rust CLI 的 sandbox/approval/config 入口分析“模型建议动作”和“本地执行权限”如何分离；不要推断公开源码之外的托管服务。 | `codex-rs/utils/cli/src/shared_options.rs`<br>`codex-rs/core/config.schema.json` | [官方来源](https://github.com/openai/codex) |
-| OpenHands Software Agent SDK | `v1.24.0 @ fdc2bdf` | 围绕 Conversation、Agent、Tool、Workspace、Event 与 Agent Server 阅读，理解远程 workspace、interrupt、metrics/resume 的服务边界。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/OpenHands/software-agent-sdk) |
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
+| 系统层 | 常见机制 | 仍由应用决定的事项 |
+|---|---|---|
+| [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | tool loop、sessions、HITL、tracing | 业务幂等键、外部 receipt、对账接口 |
+| Workflow/graph runtime | retry policy、checkpoint、interrupt | retry 是否会重复副作用；checkpoint 与外部 effect 的一致性 |
+| 云任务队列 | visibility timeout、delivery attempts、dead letter | consumer 的 dedupe ledger 与业务提交边界 |
+| MCP tool server | tool request/result transport | server 是否实现 effect identity、查询与 compensation |
 
-### 源码阅读方法
-
-源码阅读以 **OpenAI Codex CLI** 为第一参照，并只追与“Tool Runtime：调度、权限、超时、重试与副作用语义”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“UNKNOWN 写操作自动重试”、如何在“HTTP 200 当作业务成功”后恢复，以及如何让 `工具 span 记录 latency/status` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+不要把框架的“节点重放”误解为业务动作可重放。若节点内部调用支付 API，恢复引擎必须知道 effect phase，否则 deterministic replay 反而会稳定地产生重复效果。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
-|---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| OpenAI Codex CLI | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
-| OpenHands Software Agent SDK | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 方法 | 能回答的问题 | 不能保证 |
+|---|---|---|
+| 客户端重试 | 瞬时失败后再次发送 | 远端没有第一次提交 |
+| 服务端幂等 ledger | 同 key 不新增效果 | 参数摘要正确、key 不碰撞 |
+| Outbox/Inbox | 本地事务与消息发布协调 | 第三方 API 有可查询 receipt |
+| Saga/补偿 | 跨服务失败后的业务修复 | 回到历史上完全相同状态 |
+| 人工对账 | 处理无机器证据的例外 | 高吞吐、低延迟自动恢复 |
 
+生产设计通常组合使用：Intent journal + idempotent endpoint + reconciliation query + verifier；任何单项都不足以覆盖全部窗口。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Tool Runtime：调度、权限、超时、重试与副作用语义”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
 ### 实验环境
 
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Tool Runtime：调度、权限、超时、重试与副作用语义”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
+本实验仅用 Python 标准库和 AgentLab，支持 arm64/x86_64，无网络、无 API key。SUT 是 `InMemoryEffectJournal`、`SimulatedRemoteLedger` 与 `EffectController`；remote 是可查询的确定性外部系统模型，不冒充真实云服务。
 
-### Lab 08A — 正常路径
-
-```bash
-PYTHONPATH=src python examples/chapters/ch08_tool_runtime.py
-```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::tool_runtime`
-- `examples/chapters/ch08_tool_runtime.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "ambiguous side effects must be represented as UNKNOWN rather than guessed", "invariant_holds": true, "observation": {"error": null, "retryable": false, "status": "COMMITTED"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "tool-runtime", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 08A](../../../labs/core/lab-08A-tool-runtime.md)。
-
-### Lab 08B — 故障注入
+### Lab 08A：可确认提交
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch08_tool_runtime.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch08_tool_runtime.py
 ```
 
-**本发布包实际输出：**
+实际轨迹为 `PREPARED → COMMITTED`，`effect_count=1`，receipt 为 `rcpt-1`，证据等级 `L1_MECHANISM`。
 
-```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "ambiguous side effects must be represented as UNKNOWN rather than guessed", "invariant_holds": true, "observation": {"error": "timeout:response lost after send", "retryable": false, "status": "UNKNOWN"}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "tool-runtime", "system_detected": true}
+### Lab 08B：提交后丢失响应
+
+```bash
+PYTHONPATH=src uv run python examples/chapters/ch08_tool_runtime.py --fault
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L3_CONTAINED**：被测组件检测并 fail-closed/约束了故障，但不声明已恢复业务结果。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 08B](../../../labs/core/lab-08B-tool-runtime-fault.md)。
+实际轨迹为 `PREPARED → UNKNOWN → COMMITTED`；第一次观测是 UNKNOWN，对账命中远端 ledger，最终 `effect_count=1`，故为 `L4_RECOVERED`。这证明本地故障模型的恢复语义，不证明任意 SaaS 都提供可对账 API。完整实验见 [Lab 08A](../../../labs/core/lab-08A-tool-runtime.md) 与 [Lab 08B](../../../labs/core/lab-08B-tool-runtime-fault.md)。
 
-### 观察与证据
+### 关键断点与验收标准
 
+**关键断点**：在 intent 摘要校验、`PREPARED` 持久化、远端 apply、`UNKNOWN` 记录和 reconciliation lookup 处观察，核对 journal 先于外部调用。**验收标准**：正常路径实际输出为一次 effect 和可查 receipt；丢回复后必须经 `UNKNOWN` 对账收敛，不得盲目重试，且 `effect_count=1`。
 
 ## 工程场景与系统设计
 
-本章复用第 7 章“客户支持 Agent”教学负载，关注 100 QPS 下 tool scheduling、timeout 和幂等键，而不把模拟 fixture 的延迟写成真实服务 SLO。
+以支付提交为例，ActionIntent 应绑定付款对象、金额、币种、收款方、租户、审批版本和参数摘要。调用方在 PREPARED 后崩溃，恢复 worker 不能重新问模型“要不要再付一次”，而应以 idempotency key 查询支付方。若已提交则导入 receipt；若明确不存在才允许重新发送；若提供方不能回答则进入人工 exception queue。
 
-
-### 上线前必须补齐
-
-- 围绕 **工具运行时与副作用** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `超时不代表没执行；可能产生外部效果的工具必须有 UNKNOWN 状态。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+调度层还需要每工具 concurrency limit、tenant quota、deadline budget、circuit breaker 和 bulkhead。读服务拥塞不能耗尽高风险写动作的对账 worker；reconciliation 通常应有独立优先级。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **发送前崩溃**：只有 PREPARED，无网络尝试证据；仍应查询或根据 transport evidence 判定。
+- **提交后丢响应**：必须 UNKNOWN，最忌自动重试。
+- **receipt 写盘前崩溃**：外部已提交，本地仍 PREPARED；按 action/key 对账。
+- **key 重用但参数变化**：远端应拒绝并报告 digest conflict。
+- **取消竞态**：取消到达时远端已提交，最终状态仍可为 COMMITTED。
+- **对账读到副本延迟**：NOT_FOUND 不等于 NOT_APPLIED，需要 consistency/settling-window 合同。
 
-- **UNKNOWN 写操作自动重试**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **HTTP 200 当作业务成功**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **凭据进入模型上下文**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错时先画出时间线，逐条标明事实来源；不要用日志行顺序替代跨系统 happens-before。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+关键指标包括：UNKNOWN rate、UNKNOWN age、reconciliation success/latency、duplicate-effect rate、idempotency conflict、receipt coverage、compensation rate、tool concurrency saturation 和 deadline exhaustion。最危险的指标不是普通 5xx，而是长时间未收敛的 UNKNOWN。
 
-- `tool/retrieval p50,p95 latency`
-- `tool error/UNKNOWN rate`
-- `recall@k / evidence coverage`
-- `memory hit/conflict rate`
-- `payload bytes / turn`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Policy` 的生命周期时，要重新验证 **ambiguous side effects must be represented as UNKNOWN rather than guessed**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “UNKNOWN 写操作自动重试”、“HTTP 200 当作业务成功”、“凭据进入模型上下文”：只有正常路径与对应 fault path 都保持 **ambiguous side effects must be represented as UNKNOWN rather than guessed**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+Journal 应 append-only、可索引并定期 compact，但 compaction 不能删除未终结 action。对账任务可批量化并指数退避；高价值动作可更积极查询。凭据和敏感 args 不写明文，日志保存 digest、对象引用和最小诊断字段。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 检索只能返回可索引/可访问的数据，不自动保证事实完整性
-- 工具 schema 无法消除外部系统自身的不一致
-- 长期记忆会过期、冲突或包含敏感信息，必须治理
-- 协议标准化互操作，不替代业务授权与审计
+本章实验的远端 ledger 在同一进程中，因此没有真实网络、跨区域复制和第三方一致性延迟；证据上限是机制级 L4，而不是外部互操作 L5。真实验证要在 disposable sandbox/provider 上强制切断响应通道，再从真实 API 查询 receipt，并保存脱敏服务端证据。
 
-选择方案时要回到本章边界：如果业务不能接受“UNKNOWN 写操作自动重试”，就必须为 `Dispatch` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Policy` 决策交给模型，但要用 `工具 span 记录 latency/status` 保持结果可验证。**OpenAI Codex CLI** 与 **OpenHands Software Agent SDK** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Runtime 可以统一调度和错误语义，但在没有跨系统事务的情况下不能无条件提供 exactly-once effect。尤其是非幂等写操作超时后，若无法证明 NOT_APPLIED，就必须进入 UNKNOWN/reconciliation，而不是盲目 retry。
+使用 OpenAI 或本地模型只影响“何时提出工具调用”，不改变 effect protocol。模型 API key 必须来自环境变量；工具服务凭据应是另一个短期、最小权限 secret，二者不得混用或出现在 trace 中。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+长时 Agent 把传统分布式事务问题带回应用层：semantic transactions、可验证 effect receipts、跨工具 compensation planning 和 policy-aware replay 都是活跃方向。前沿系统需要同时建模模型不确定性与环境不确定性；仅增加 reasoning token 无法判断一个不可见的远端提交。
 
-- **[Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761)**：探索模型学习何时调用外部工具以及如何把工具结果纳入后续预测。
-- **[OpenAI Codex CLI](https://github.com/openai/codex)**（0.139.0 historical reproducibility pin）：开源 Rust coding agent；公开源码可分析 sandbox、approval 与 CLI execution boundary。
-- **[OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk)**（v1.24.0 @ fdc2bdf）：agents、tools、conversations、workspaces、events，支持 Agent Server。
+### 深度审计与研究证据链：恢复是新增证据，不是再推理一次
 
-
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- Semantic Transactions for Tool‑Using LLM Agents（arXiv 2606.17573; observed 2026‑09‑10）：tool‑runtime, checkpoint/journal, effect‑recovery。
-- MCP 2026‑07‑28 Specification（2026‑07‑28 GA）：stateless protocol core, MRTR, header routing, cache hints and auth hardening。
-
-**本章吸收的变化。** Tool Runtime 必须显式表示 effect outcome。timeout 不是 FAILED 的同义词；UNKNOWN 要进入查询、等待、补偿或人工协调。这些研究/规范的价值不在于替换本章原理， 而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Dispatch`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **ambiguous side effects must be represented as UNKNOWN rather than guessed** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“UNKNOWN 写操作自动重试”和“HTTP 200 当作业务成功”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **工具运行时与副作用** 的可验证性。Semantic Transactions for Tool-Using LLM Agents 把 irreversible effect 的 staging/validation 作为核心问题，正好支撑本章 UNKNOWN/补偿语义。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Dispatch` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“UNKNOWN 写操作自动重试”与“HTTP 200 当作业务成功”同时发生时，**OpenAI Codex CLI** 与 **OpenHands Software Agent SDK** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Policy` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“凭据进入模型上下文”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：工具运行时与副作用
-
-本章重新审计后的核心结论是：**超时不代表没执行；可能产生外部效果的工具必须有 UNKNOWN 状态。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[Semantic Transactions for Tool-Using LLM Agents](https://arxiv.org/abs/2606.17573)**：把不可逆工具副作用抽象成语义事务，支撑 UNKNOWN、staging 与 validation 讨论。
-- **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**：提供 Agent/Runner/Tools/HITL/Tracing/Sessions 的公开实现边界。
-- **[Microsoft Agent Framework Checkpoints](https://learn.microsoft.com/en-us/agent-framework/workflows/checkpoints)**：把 checkpoint 定义为 workflow resume 所需的 executor state、pending messages/requests 与 shared state。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI Agents HITL、LangGraph interrupt、MAF workflow checkpoint 与自研 EffectJournal 是四种可比治理方式。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证工具运行时与副作用的 schema、证据或记忆边界；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章的结论建立在经典失败窗口、可执行状态机和真实提交后响应丢失注入上。框架源码只能证明它提供 checkpoint/retry 接口；只有远端 ledger 或业务 verifier 才能证明效果。将两者混写会夸大 durable execution 的能力。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+安全 Tool Runtime 将 timeout 解释为知识状态，而非业务状态。UNKNOWN 是诚实而必要的中间态；对账使它收敛，盲重试只会扩大风险。
 
-1. 本章不变量是：**ambiguous side effects must be represented as UNKNOWN rather than guessed**；
-2. `Dispatch` 必须是可观察软件边界，而不是 prompt 约定；
-3. `执行前检查策略` 与 `工具 span 记录 latency/status` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题：
 
-### 常见误区
+1. 为什么 TCP 连接断开不能证明请求未提交？
+2. idempotency key 应绑定哪些字段，保留多久？
+3. NOT_FOUND 在最终一致系统中为什么不等于 NOT_APPLIED？
+4. 用户取消后为什么仍要运行 reconciliation？
+5. compensation 与数据库 rollback 的语义差异是什么？
 
-- UNKNOWN 写操作自动重试
-- HTTP 200 当作业务成功
-- 凭据进入模型上下文
-
-### 思考题与实践
-
-- **Why：** 为什么 `Dispatch` 不能只靠模型“记住”？
-- **What if：** 如果在 `执行前检查策略` 与 `工具 span 记录 latency/status` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch08_tool_runtime.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **RAG 基础：检索、证据与生成边界**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+参考答案见[附录 H：第二篇问题参考答案](../appendix-h-part2-solutions.html#part2-solutions-ch08)。

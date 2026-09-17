@@ -1,16 +1,16 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Affordance",fillcolor="#edf5ff"];
-n2 [label="Schema",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Risk level",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+proposal [label="模型提出 Tool Call\n只是候选 Intent",fillcolor="#edf5ff"];
+registry [label="Tool Contract Registry\nUse/Do-not-use · I/O Schema\nRisk · Effect · Capability",fillcolor="#fff4e6"];
+gate [label="注册与调用门\nSchema · Semantic · Policy",fillcolor="#fdecea"];
+runtime [label="受控 Runtime\n凭据 · Timeout · Sandbox",fillcolor="#eef9f1"];
+result [label="Observation\nInline 或 Artifact Ref",fillcolor="#f6efff"];
+reject [label="拒绝并记录 Reason\n不得 Dispatch",fillcolor="#fdecea"];
+proposal->registry;
+registry->gate;
+gate->runtime [label="allow"];
+gate->reject [label="invalid / deny",color="#b03a2e"];
+runtime->result [label="receipt + provenance"];
 }

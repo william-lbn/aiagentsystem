@@ -1,16 +1,22 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Supervisor",fillcolor="#edf5ff"];
-n2 [label="Worker",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Blackboard",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.32",ranksep="0.5"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+goal [label="目标 + 验收规则",fillcolor="#fff4e6"];
+scheduler [label="Durable Scheduler\nDAG / owner / lease",fillcolor="#eef9f1"];
+budget [label="Budget Ledger\n原子预留",fillcolor="#fdecea"];
+research [label="Researcher\nsources.read",fillcolor="#edf5ff"];
+coder [label="Coder\nrepository.write",fillcolor="#edf5ff"];
+artifacts [label="Artifact Store\nprovenance + digest",fillcolor="#f6efff"];
+reviewer [label="Reviewer\nindependent join",fillcolor="#edf5ff"];
+effect [label="Effect Gate\nidempotent receipt",fillcolor="#f7f9f9"];
+goal->scheduler;
+budget->scheduler [label="reserve"];
+scheduler->research [label="project source context"];
+scheduler->coder [label="project repo context"];
+research->artifacts;
+coder->artifacts;
+artifacts->reviewer [label="verified inputs"];
+reviewer->effect [label="join"];
+effect->scheduler [label="receipt",style=dashed];
 }

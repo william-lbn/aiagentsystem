@@ -4,7 +4,7 @@ from agentlab.course_scenarios import run_scenario
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Messages、Structured Output 与 ReAct 轨迹")
+    p = argparse.ArgumentParser(description="Messages 与 Trajectory：Agent 的类型化事件语言")
     p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
     args = p.parse_args()
     result = run_scenario("messages", fault=args.fault)

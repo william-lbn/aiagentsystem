@@ -1,16 +1,24 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Agent Server",fillcolor="#edf5ff"];
-n2 [label="Workspace",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Events",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.30",ranksep="0.55"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=12,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=9,color="#5d6d7e"];
+client [label="Client / SDK",fillcolor="#fff4e6"];
+gateway [label="API Gateway\nPrincipal · Tenant · Quota",fillcolor="#fdecea"];
+control [label="Agent Server Control Plane\nConversation · Lease · Command",fillcolor="#edf5ff"];
+events [label="Durable Event Store\nWorkspace Binding · Sequence · Request ID",fillcolor="#f6efff"];
+queue [label="Dispatch Queue",fillcolor="#edf5ff"];
+worker [label="Worker / Runtime",fillcolor="#fff4e6"];
+workspace [label="Isolated Workspace\nProcess · Files · Scoped Secret",fillcolor="#eef9f1"];
+artifact [label="Artifact Store\nDigest · Locator",fillcolor="#f6efff"];
+stream [label="Stream Projection\nCursor / Replay",fillcolor="#edf5ff"];
+client->gateway;
+gateway->control;
+control->events [label="commit command/event"];
+control->queue;
+queue->worker;
+worker->workspace;
+workspace->artifact;
+worker->events [label="receipt/outcome",constraint=false];
+events->stream [label="ordered view",constraint=false];
+stream->client [label="ordered view",constraint=false];
 }

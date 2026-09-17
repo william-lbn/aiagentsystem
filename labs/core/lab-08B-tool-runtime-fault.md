@@ -1,54 +1,42 @@
-# Lab 08B — Tool Runtime：调度、权限、超时、重试与副作用语义｜故障注入
+# Lab 08B — 提交后响应丢失与对账恢复｜故障注入
 
 ## 实验目标
 
-验证不变量：**ambiguous side effects must be represented as UNKNOWN rather than guessed**
+`SimulatedRemoteLedger.apply` 先把 effect 写入 idempotency ledger，然后抛出 `reply_lost_after_remote_commit`。这与“调用前直接抛 timeout”不同：副作用确实发生，盲重试可能重复。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 08A 相同：Python 3.11–3.13，macOS/Linux、arm64/x86_64，无网络/API key。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；故障由 `SimulatedRemoteLedger` 在真实落账后确定性注入，不依赖网络随机性。
 
 ## 实验代码
-
-入口：`examples/chapters/ch08_tool_runtime.py`；核心机制：`src/agentlab/course_scenarios.py::tool_runtime`。
-
-本实验输入由 `tool_runtime` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::tool_runtime`
-- `examples/chapters/ch08_tool_runtime.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 B：故障注入路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch08_tool_runtime.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "ambiguous side effects must be represented as UNKNOWN rather than guessed", "invariant_holds": true, "observation": {"error": "timeout:response lost after send", "retryable": false, "status": "UNKNOWN"}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "tool-runtime", "system_detected": true}
+{"contained":true,"evidence_level":"L4_RECOVERED","fault":true,"invariant_holds":true,"observation":{"effect_count":1,"final_phase":"COMMITTED","first_phase":"UNKNOWN","journal":["PREPARED","UNKNOWN","COMMITTED"],"receipt_id":"rcpt-1"},"oracle_detected":true,"passed":true,"recovered":true,"scenario":"tool-runtime","system_detected":true}
 ```
 
-### 验收标准
+## 验收标准
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- 故障后第一状态必须是 UNKNOWN，不能伪写 FAILED/NOT_APPLIED；
+- reconciliation 通过同一 idempotency key 查询 receipt；
+- 最终 COMMITTED，effect_count 仍为 1；
+- Journal 必须保留三步历史。
 
-### 进阶修改
+满足检测、包含并恢复，因此为 L4。若只停在 UNKNOWN 则是 L3；若测试看到 timeout 但 Runtime 标为 FAILED，则不满足不变量。
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+## 调试断点
+
+在 `remote.apply` 抛错前检查 ledger 已有记录；在 `reconcile` 检查它调用 lookup 而非再次 apply。可扩展 NOT_APPLIED 分支、延迟可见 ledger、幂等 key 参数冲突与人工 exception queue。
+
+## Claim ceiling
+
+这是确定性外部系统模型，不证明真实支付/云 API 的一致性。L5 升级需要 disposable provider sandbox、真实断流、真实查询 receipt 和脱敏服务端证据。

@@ -1,52 +1,41 @@
-# Lab 09A — RAG 基础：检索、证据与生成边界｜正常路径
+# Lab 09A — BM25、来源与拒答边界｜正常路径
 
 ## 实验目标
 
-验证不变量：**retrieval must expose evidence scores and permit a no-evidence outcome**
+在固定语料上真实计算 BM25，验证 runbook 进入 top-1，每个 hit 带 source URI/observed metadata，并让低分文档显式进入 excluded report。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13；无网络、embedding 或 API key。SUT：`knowledge_system.BM25Index`；tokenizer 对英文按词、中文按字。该 tokenizer 是教学边界，不代表最佳中文生产方案。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；语料由场景在内存构建，无需下载模型或索引。
+
+## 语料和查询
+
+Tenant A 有 checkpoint runbook、审批 policy、retrieval architecture 三文档。查询为 “resume a long running agent from checkpoint after process restart”。
 
 ## 实验代码
-
-入口：`examples/chapters/ch09_retrieval.py`；核心机制：`src/agentlab/course_scenarios.py::retrieval`。
-
-本实验输入由 `retrieval` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::retrieval`
-- `examples/chapters/ch09_retrieval.py::main`
-
-## 实验 A：正常路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch09_retrieval.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "retrieval must expose evidence scores and permit a no-evidence outcome", "invariant_holds": true, "observation": {"query": "agent checkpoint resume", "ranking": [["d1", 2], ["d2", 0], ["d3", 0]]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "retrieval", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"invariant_holds":true,"observation":{"abstained":false,"excluded":{"approval":"below_score_threshold","retrieval":"below_score_threshold"},"hits":[{"doc_id":"runbook","score":9.952768,"source_uri":"kb://runbooks/checkpoint-recovery"}]},"passed":true,"scenario":"retrieval"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+在 DF 构建、IDF、长度归一化和 threshold 处观察实际数值；确认 tenant gate 在评分之前。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+PASS 要求 top-1/source 精确匹配，且结果非裸文本。另运行 query `stellar nucleosynthesis`，单测要求 `hits=()` 与 `abstained=true`。
+
+## 证据边界
+
+三文档 fixture 只验证公式、排序和报告结构，不支持对真实知识库 Recall@k 的结论。质量评测需人工 relevance labels、更多 query 和统计区间。

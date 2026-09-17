@@ -1,16 +1,18 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Token/Context window",fillcolor="#edf5ff"];
-n2 [label="Structured generation",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Tool-call contract",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.32",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+input [label="Tokenized Context",fillcolor="#fff4e6"];
+model [label="概率模型 pθ\n文本 / Tool Item",fillcolor="#edf5ff"];
+syntax [label="Syntax Gate\n完整 JSON / Item",fillcolor="#eef9f1"];
+schema [label="Schema Gate\n判别联合 · 严格类型",fillcolor="#eef9f1"];
+semantic [label="Semantic Gate\n能力 · 领域 · 置信策略",fillcolor="#eef9f1"];
+auth [label="Authorization Gate\n身份 · 风险 · 预算",fillcolor="#fdecea"];
+intent [label="Canonical Intent\n可持久化、未执行",fillcolor="#f6efff"];
+input->model;
+model->syntax;
+syntax->schema;
+schema->semantic;
+semantic->auth;
+auth->intent;
 }

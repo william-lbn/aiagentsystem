@@ -1,16 +1,20 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="DOM observation",fillcolor="#edf5ff"];
-n2 [label="Screenshot",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Action space",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.30",ranksep="0.55"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=12,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=9,color="#5d6d7e"];
+env [label="Web / Desktop Environment\nState + Revision",fillcolor="#eef9f1"];
+obs [label="Observation Builder\nDOM · AX Tree · Screenshot · Digest",fillcolor="#edf5ff"];
+model [label="Model / Policy\nCandidate Action",fillcolor="#fff4e6"];
+gate [label="Action Gate\nTarget · Revision · Approval",fillcolor="#fdecea"];
+executor [label="Browser / Computer Executor\nClick · Type · Navigate",fillcolor="#f6efff"];
+receipt [label="Receipt + New Observation",fillcolor="#edf5ff"];
+verify [label="Postcondition Verifier\nBusiness State / DOM Invariant",fillcolor="#eef9f1"];
+env->obs;
+obs->model;
+model->gate;
+gate->executor;
+executor->env;
+executor->receipt;
+receipt->verify;
+env->verify [label="authoritative state",constraint=false];
 }

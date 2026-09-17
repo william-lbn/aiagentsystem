@@ -1,16 +1,20 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Schema introspection",fillcolor="#edf5ff"];
-n2 [label="Read-only SQL",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Python analysis",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.30",ranksep="0.55"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=12,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=9,color="#5d6d7e"];
+question [label="Question\nMetric · Time · Grain",fillcolor="#fff4e6"];
+semantic [label="Semantic / Catalog Layer\nSchema · Policy · Data Version",fillcolor="#edf5ff"];
+planner [label="SQL / Python Planner\nUntrusted Proposal",fillcolor="#fff4e6"];
+gate [label="Execution Gate\nRBAC · Authorizer · Budget",fillcolor="#fdecea"];
+db [label="Read-Only Data Snapshot",fillcolor="#eef9f1"];
+artifact [label="Analysis Artifact\nSQL · Params · Plan · Rows · Digest",fillcolor="#f6efff"];
+verify [label="Semantic / Numeric Verifier",fillcolor="#edf5ff"];
+report [label="Claims + Uncertainty",fillcolor="#eef9f1"];
+question->semantic;
+semantic->planner;
+planner->gate;
+gate->db;
+db->artifact;
+artifact->verify;
+verify->report;
 }

@@ -2,12 +2,12 @@
 
 ## 第一篇 基础：从模型接口到可调试 Agent
 
-- [AI Agent Systems：从模型调用到可运行系统](chapters/01-foundation.md)
-- [模型基座：Token、结构化生成、工具调用与推理接口](chapters/02-model-substrate.md)
-- [Context Engineering：信息进入模型之前已经决定了一半结果](chapters/03-context.md)
-- [Messages、Structured Output 与 ReAct 轨迹](chapters/04-messages.md)
-- [Planning、Workflow 与 Hybrid Control](chapters/05-planning.md)
-- [Agent State、Trajectory 与可调试性](chapters/06-state.md)
+- [AI Agent Systems：从生成模型到可治理行动系统](chapters/01-foundation.md)
+- [模型基座：概率生成、结构化决策与工具调用边界](chapters/02-model-substrate.md)
+- [Context Engineering：把信息配置成受治理的运行时视图](chapters/03-context.md)
+- [Messages 与 Trajectory：Agent 的类型化事件语言](chapters/04-messages.md)
+- [Planning 与 Hybrid Control：从候选步骤到可执行计划](chapters/05-planning.md)
+- [Agent State 与 Trajectory：可恢复、可重放、可并发的执行语义](chapters/06-state.md)
 
 ## 第二篇 知识、工具、记忆与协议
 
@@ -21,13 +21,13 @@
 
 ## 第三篇 Runtime、Durable Execution 与 Harness
 
-- [Agent Loop：从 while 循环到可治理 Runtime](chapters/14-agent-loop.md)
-- [Async Runtime：流式、并发、中断与取消](chapters/15-async.md)
-- [Human-in-the-Loop：把不可逆动作放进可恢复审批](chapters/16-hitl.md)
-- [Sandbox 与权限：控制 Agent 的爆炸半径](chapters/17-sandbox.md)
-- [Checkpoint、Journal 与可恢复执行](chapters/18-checkpoint-journal.md)
-- [Harness 与插件运行时：模型之外的系统能力如何组合](chapters/19-harness.md)
-- [Coding Agent 最小实现：读、改、测、验证](chapters/20-coding-minimal.md)
+- [Agent Loop：从概率决策到可治理状态机](chapters/14-agent-loop.md)
+- [异步 Runtime：结构化并发、流式事件与取消语义](chapters/15-async.md)
+- [Human-in-the-Loop：把人类决定变成可验证授权](chapters/16-hitl.md)
+- [Sandbox 与能力安全：限制 Agent 的真实爆炸半径](chapters/17-sandbox.md)
+- [Checkpoint、Journal 与 Durable Execution](chapters/18-checkpoint-journal.md)
+- [Agent Harness：模型之外的系统产品](chapters/19-harness.md)
+- [最小 Coding Agent：读、定位、修改、验证与回滚](chapters/20-coding-minimal.md)
 
 ## 第四篇 专用 Agent 与真实环境
 
@@ -69,3 +69,8 @@
 - [附录 D：术语、不变量与状态词典](appendix-d-glossary.md)
 - [附录 E：2026 AI Agent 研究版图、理论前沿与开放问题](appendix-e-research-frontier.md)
 - [附录 F：AI Agent 行业状态、产业影响与 2026–2030 发展判断](appendix-f-industry-future.md)
+- [附录 G：第一篇问题参考答案](appendix-g-part1-solutions.md)
+- [附录 H：第二篇问题参考答案](appendix-h-part2-solutions.md)
+- [附录 I：第三篇问题参考答案](appendix-i-part3-solutions.md)
+- [附录 J：第四篇进阶问题参考答案](appendix-j-part4-solutions.md)
+- [附录 K：第五篇进阶问题参考答案](appendix-k-part5-solutions.md)

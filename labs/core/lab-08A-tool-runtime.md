@@ -1,54 +1,35 @@
-# Lab 08A — Tool Runtime：调度、权限、超时、重试与副作用语义｜正常路径
+# Lab 08A — Intent、Journal 与 Receipt｜正常路径
 
 ## 实验目标
 
-验证不变量：**ambiguous side effects must be represented as UNKNOWN rather than guessed**
+验证一次写动作先持久化 PREPARED，再由可查询远端 ledger 提交并记录 COMMITTED；参数摘要必须与 ActionIntent 一致，远端效果数为一。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13，macOS/Linux、arm64/x86_64；无网络/API key。SUT 为 `EffectController`、`InMemoryEffectJournal`、`SimulatedRemoteLedger`。远端模型执行真实状态写入，但仅在当前进程内，因此证据不是外部 provider L5。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；确保 `PYTHONPATH=src`，不配置真实支付端点或密钥。
 
 ## 实验代码
 
-入口：`examples/chapters/ch08_tool_runtime.py`；核心机制：`src/agentlab/course_scenarios.py::tool_runtime`。
-
-本实验输入由 `tool_runtime` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::tool_runtime`
-- `examples/chapters/ch08_tool_runtime.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 A：正常路径
+固定 action `act-08` 将 `inv-2048` 标为 paid；canonical args 生成 SHA-256，idempotency key 为 `idem-act-08`。
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch08_tool_runtime.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "ambiguous side effects must be represented as UNKNOWN rather than guessed", "invariant_holds": true, "observation": {"error": null, "retryable": false, "status": "COMMITTED"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "tool-runtime", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"invariant_holds":true,"observation":{"effect_count":1,"final_phase":"COMMITTED","first_phase":"COMMITTED","journal":["PREPARED","COMMITTED"],"receipt_id":"rcpt-1"},"passed":true,"scenario":"tool-runtime"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+在 `EffectController.execute` 的 args digest、PREPARED append、remote apply 和 COMMITTED append 处停下；确认 journal 顺序先于远端调用。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+要求轨迹严格为两步、receipt 非空、effect_count=1。将 args 在 Intent 后改为其他 invoice，必须抛出 `intent_args_digest_mismatch` 且 journal/remote 均无效果。

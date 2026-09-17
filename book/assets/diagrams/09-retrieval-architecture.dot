@@ -1,16 +1,17 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Chunk",fillcolor="#edf5ff"];
-n2 [label="Index",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Retriever",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+raw [label="Raw Sources\n内容 Hash + 原文",fillcolor="#fff4e6"];
+catalog [label="Metadata Catalog\nTenant · ACL · Time · Authority",fillcolor="#edf5ff"];
+index [label="可重建 Index\nBM25 / Dense / Structured",fillcolor="#eef9f1"];
+filter [label="Hard Scope Filter\n先隔离再排序",fillcolor="#fdecea"];
+rank [label="Rank + Threshold\n允许 No Evidence",fillcolor="#eef9f1"];
+evidence [label="Evidence Set\nSource · Time · Score · Span",fillcolor="#f6efff"];
+raw->catalog;
+catalog->index;
+catalog->filter;
+index->filter;
+filter->rank;
+rank->evidence;
 }

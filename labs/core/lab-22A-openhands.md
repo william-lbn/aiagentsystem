@@ -1,52 +1,36 @@
-# Lab 22A — OpenHands 与远程 Agent Server 架构｜正常路径
+# Lab 22A — Conversation/Workspace 事件持久化｜正常路径
 
 ## 实验目标
 
-验证不变量：**remote agent servers need explicit conversation/workspace/event boundaries**
+以真实 SQLite 文件写入有序 `tool.started/tool.finished` 事件，关闭再重开 store，验证 conversation、workspace 和 sequence 绑定仍成立。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13；标准库 SQLite；无需 OpenHands、容器、网络或 API key。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch22_openhands.py`；核心机制：`src/agentlab/course_scenarios.py::openhands`。
+```bash
+python examples/chapters/ch22_openhands.py
+```
 
-本实验输入由 `openhands` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+实际输出：
+
+```json
+{"event_types":["tool.started","tool.finished"],"sequences":[1,2],"reopened_from_sqlite":true,"error":null,"evidence_level":"L1_MECHANISM","passed":true}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::openhands`
-- `examples/chapters/ch22_openhands.py::main`
+在 `AgentEventStore.append` 的 workspace comparison、next sequence 与 commit 处停下；重开连接后观察 `events` 按 sequence 返回。
 
-## 实验 A：正常路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch22_openhands.py
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "remote agent servers need explicit conversation/workspace/event boundaries", "invariant_holds": true, "observation": {"events": [["conversation.created", "c1"], ["workspace.attached", "w1"], ["tool.started", "shell"], ["tool.finished", "0"]], "finished": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "openhands", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
-
-### 结果解释
-
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；sequence 恰为 1、2；事件类型和 payload 可重放。本实验不是 OpenHands SDK/Agent Server 互操作测试。

@@ -1,16 +1,20 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Agent card",fillcolor="#edf5ff"];
-n2 [label="Task",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Message",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.35",ranksep="0.52"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+client [label="A2A Client\n发现 + 版本选择",fillcolor="#fff4e6"];
+card [label="Agent Card\n能力声明（不可信）",fillcolor="#edf5ff"];
+auth [label="Delegation Gate\nprincipal/task/scope/expiry",fillcolor="#fdecea"];
+store [label="Durable Task Store\nstate/version/event",fillcolor="#eef9f1"];
+worker [label="Remote Executor\n受限能力",fillcolor="#edf5ff"];
+artifact [label="Artifact Store\nschema + digest",fillcolor="#f6efff"];
+verify [label="Local Verifier\n业务完成性",fillcolor="#f7f9f9"];
+client->card [label="discover"];
+card->auth [label="select interface"];
+auth->store [label="authorized submit"];
+store->worker [label="claim / resume"];
+worker->artifact [label="deliver"];
+artifact->verify [label="evidence"];
+verify->store [label="terminal decision",style=dashed];
+auth->verify [label="reject before effect",color="#b03a2e",style=dashed];
 }

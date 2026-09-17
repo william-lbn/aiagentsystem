@@ -1,52 +1,37 @@
-# Lab 20B — Coding Agent 最小实现：读、改、测、验证｜故障注入
+# Lab 20B — 最小 Coding Agent：错误补丁回滚｜故障注入
 
 ## 实验目标
 
-验证不变量：**a code change is complete only when an external verifier proves the requested behavior**
+注入能成功应用但行为错误的乘法补丁，验证子进程 oracle 失败后恢复原始文件，而不是保留污染状态。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；真实临时 workspace/子进程；
+- 无模型、容器/API key；
+- 预期 `L3_CONTAINED`，不是 SWE-bench 成绩。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch20_coding_minimal.py`；核心机制：`src/agentlab/course_scenarios.py::coding_minimal`。
-
-本实验输入由 `coding_minimal` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::coding_minimal`
-- `examples/chapters/ch20_coding_minimal.py::main`
-
-## 实验 B：故障注入路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch20_coding_minimal.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "a code change is complete only when an external verifier proves the requested behavior", "invariant_holds": false, "observation": {"diff": "def add(a,b):\n    return a*b", "file": "/tmp/agentlab-code-kq9gd9rh/calc.py", "result": 6}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "coding-minimal", "system_detected": false}
+{"contained":true,"evidence_level":"L3_CONTAINED","fault":true,"observation":{"accepted":false,"changed_files":["calc.py"],"diff_sha256":"a3c8b1c13fcc56d0","returncode":1,"rolled_back":true,"verifier_stdout":"","workspace_restored":true},"passed":true,"scenario":"coding-minimal"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+在子进程退出码、`accepted` 和 rollback write 后停下；重新读取文件确认仍是原始 `return a - b`。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+`accepted=false`、退出码非零、`rolled_back=true`、`workspace_restored=true`。补丁存在 diff 不能算成功。

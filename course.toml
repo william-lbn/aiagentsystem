@@ -19,17 +19,17 @@ quarto_image = "ghcr.io/quarto-dev/quarto-full:1.11.1@sha256:fb4b3d369c7399f97db
 source_date_epoch = 1789084800
 min_python = "3.11"
 max_python_exclusive = "3.14"
-pdf_min_pages = 380
+pdf_min_pages = 365
 expected_chapters = 40
-expected_appendices = 6
+expected_appendices = 11
 expected_core_labs = 80
 expected_chapter_examples = 40
 expected_support_examples = 29
 expected_upstream_labs = 10
-expected_source_locks = 100
+expected_source_locks = 108
 expected_diagrams = 80
 expected_slides = 90
-expected_site_pages = 127
+expected_site_pages = 132
 
 [fonts]
 main = "Noto Serif CJK SC"

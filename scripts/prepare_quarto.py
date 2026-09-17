@@ -36,6 +36,7 @@ def copy_sources(dst: Path):
     shutil.copytree(ROOT / "book/zh", dst / "book/zh", dirs_exist_ok=True)
     shutil.copytree(ROOT / "book/assets", dst / "book/assets", dirs_exist_ok=True)
     shutil.copytree(ROOT / "labs/core", dst / "labs/core", dirs_exist_ok=True)
+    shutil.copytree(ROOT / "labs/upstream", dst / "labs/upstream", dirs_exist_ok=True)
     (dst / "scripts/filters").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "scripts/filters/pdf_diagrams.lua", dst / "scripts/filters/pdf_diagrams.lua")
     shutil.copy2(ROOT / "scripts/filters/book_structure.lua", dst / "scripts/filters/book_structure.lua")

@@ -1,17 +1,12 @@
-# Lab 05A — Planning、Workflow 与 Hybrid Control｜正常路径
+# Lab 05A — 六阶段事故计划的静态可行性｜正常路径
 
 ## 实验目标
 
-验证不变量：**a workflow plan must make dependencies explicit and reject cycles**
+验证 `collect → diagnose → propose → approve → apply → verify` 的依赖 DAG 在能力齐全且预算 20 时可行，并只在所有约束通过后发布执行顺序。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 或 API key。固定整数 cost 是教学资源单位，不是云账单或真实时延。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与输入
 
-入口：`examples/chapters/ch05_planning.py`；核心机制：`src/agentlab/course_scenarios.py::planning`。
+入口 `examples/chapters/ch05_planning.py`；SUT `foundation_system.py::PlanValidator`。六步分别要求读指标、分析 trace、起草变更、人工审批、部署和再次读指标；总成本 17，所有 capability 显式提供。
 
-本实验输入由 `planning` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::planning`
-- `examples/chapters/ch05_planning.py::main`
-
-## 实验 A：正常路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch05_planning.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a workflow plan must make dependencies explicit and reject cycles", "invariant_holds": true, "observation": {"cycle": false, "nodes": ["collect", "diagnose", "propose", "verify"]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "planning", "system_detected": false}
+{"errors": [], "execution_order": ["collect", "diagnose", "propose", "approve", "apply", "verify"], "execution_started": true, "feasible": true, "total_cost": 17}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+检查 step ID 映射、dependency existence、capability set、indegree、稳定 ready queue、cycle 判定、budget gate 和最终 execution order 发布。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+无错误、总成本 17、顺序满足全部依赖、`feasible/execution_started=true`，完整结果 `invariant_holds=true/L1_MECHANISM`。
+
+## 证据解释与上限
+
+实验只证明静态结构/能力/预算可行，不执行任何真实部署，也不证明动作前置条件、持续时间、权限或结果成功。
+
+## 进阶实验
+
+增加两个只读并行分支和一个 fan-in，枚举所有合法拓扑序；随后给资源加并发上限，把 plan feasibility 与 schedule feasibility 分开报告。

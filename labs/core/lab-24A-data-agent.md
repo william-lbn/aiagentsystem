@@ -1,52 +1,36 @@
-# Lab 24A — Data Agent：SQL、Python 与可审计分析｜正常路径
+# Lab 24A — 只读聚合、Query Plan 与结果摘要｜正常路径
 
 ## 实验目标
 
-验证不变量：**analysis agents should separate read-only query privileges from write privileges**
+对真实 SQLite 文件执行受限聚合，记录列、行、query plan、截断标志和 result digest，再由独立连接核对源表行数。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13；标准库 `sqlite3`；无需模型、网络、Docker 或 API key。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch24_data_agent.py`；核心机制：`src/agentlab/course_scenarios.py::data_agent`。
+```bash
+python examples/chapters/ch24_data_agent.py
+```
 
-本实验输入由 `data_agent` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+实际输出的核心字段：
+
+```json
+{"columns":["status","total"],"rows":[["open",100],["paid",10]],"query_plan":["SCAN invoices USING INDEX invoices_status"],"result_sha256":"95745e3c04ef0fac","truncated":false,"verified_row_count":3,"evidence_level":"L1_MECHANISM"}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::data_agent`
-- `examples/chapters/ch24_data_agent.py::main`
+在 `ReadOnlyDataAgent.__init__`、`execute` 的 `EXPLAIN QUERY PLAN`、`fetchmany(max_rows+1)` 与 digest 计算处停下。
 
-## 实验 A：正常路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch24_data_agent.py
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "analysis agents should separate read-only query privileges from write privileges", "invariant_holds": true, "observation": {"read_only": true, "sql": "select sum(amount) from invoices", "value": 100}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "data-agent", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
-
-### 结果解释
-
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；聚合值和 plan 存在；`truncated=false`；独立连接确认三条源记录。本实验不评估 Text-to-SQL 模型能力。

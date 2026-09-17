@@ -54,15 +54,15 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 
 | 内容 | v1.0.0 canonical release |
 |---|---:|
-| 中文正文 | 40 章 + 6 附录，分为 7 篇 |
+| 中文正文 | 40 章 + 11 附录，分为 7 篇 |
 | Core Labs | 80 个：40 条正常路径 + 40 条故障注入路径 |
 | Python 示例 | 69 个：40 个章节入口 + 29 个支撑示例 |
-| 自动化测试 | 114 项，语句/分支综合覆盖率 90% |
-| 主书 | PDF 484 页 A4 + EPUB + HTML |
-| 实验手册 | PDF 165 页 A4 + EPUB + HTML |
-| 网站构建物 | 127 个 HTML 页面，包含在 Release 离线包中 |
+| 自动化测试 | 191 项；覆盖率由 `make coverage` 的质量门实时验证 |
+| 主书 | PDF 以当前源码构建结果为准 + EPUB + HTML |
+| 实验手册 | PDF 以当前源码构建结果为准 + EPUB + HTML |
+| 网站构建物 | 132 个 HTML 页面（当前源码构建合同） |
 | 教学幻灯片 | 90 页 PPTX |
-| 外部来源锁 | 100 项，覆盖正文与附录引用的 48 个唯一 URL |
+| 外部来源锁 | 108 项；唯一 URL 数由 source-lock QA 实时核验 |
 | Scoped L5 外部证据 | 6 项：MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF |
 
 详细状态及每一种 `PASS` 能证明到哪里，见 [EXPERIMENT_STATUS.md](EXPERIMENT_STATUS.md) 与 [v1.0.0 验证报告](VALIDATION_REPORT.md)。
@@ -83,12 +83,12 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 
 | 章 | 核心问题 | 正文 | 实验 |
 |---:|---|---|---|
-| 01 | Agent 与 Workflow 的边界；模型决策为什么不是外部副作用 | [阅读](book/zh/chapters/01-foundation.md) | [01A 正常](labs/core/lab-01A-foundation.md) · [01B 故障](labs/core/lab-01B-foundation-fault.md) |
-| 02 | Token、结构化生成、工具调用和推理接口如何成为系统契约 | [阅读](book/zh/chapters/02-model-substrate.md) | [02A 正常](labs/core/lab-02A-model-substrate.md) · [02B 故障](labs/core/lab-02B-model-substrate-fault.md) |
-| 03 | Context 如何进行预算、选择、压缩、隔离与来源治理 | [阅读](book/zh/chapters/03-context.md) | [03A 正常](labs/core/lab-03A-context.md) · [03B 故障](labs/core/lab-03B-context-fault.md) |
-| 04 | Messages、Structured Output 与 ReAct 轨迹如何被验证 | [阅读](book/zh/chapters/04-messages.md) | [04A 正常](labs/core/lab-04A-messages.md) · [04B 故障](labs/core/lab-04B-messages-fault.md) |
-| 05 | Planning、Workflow 与 Hybrid Control 怎样分配决策自由度 | [阅读](book/zh/chapters/05-planning.md) | [05A 正常](labs/core/lab-05A-planning.md) · [05B 故障](labs/core/lab-05B-planning-fault.md) |
-| 06 | State、Trajectory 与事件证据如何支持调试和回放 | [阅读](book/zh/chapters/06-state.md) | [06A 正常](labs/core/lab-06A-state.md) · [06B 故障](labs/core/lab-06B-state-fault.md) |
+| 01 | 决策、授权、执行、观察与验证如何构成受治理行动系统 | [阅读](book/zh/chapters/01-foundation.md) | [01A 正常](labs/core/lab-01A-foundation.md) · [01B 故障](labs/core/lab-01B-foundation-fault.md) |
+| 02 | 概率生成如何经过 syntax/schema/semantic/authorization 成为意图 | [阅读](book/zh/chapters/02-model-substrate.md) | [02A 正常](labs/core/lab-02A-model-substrate.md) · [02B 故障](labs/core/lab-02B-model-substrate-fault.md) |
+| 03 | Context 如何作为带 provenance、tenant、trust 与预算的运行时视图 | [阅读](book/zh/chapters/03-context.md) | [03A 正常](labs/core/lab-03A-context.md) · [03B 故障](labs/core/lab-03B-context-fault.md) |
+| 04 | 类型化 item、call identity 与 append-only trajectory 如何保持因果关系 | [阅读](book/zh/chapters/04-messages.md) | [04A 正常](labs/core/lab-04A-messages.md) · [04B 故障](labs/core/lab-04B-messages-fault.md) |
+| 05 | 候选计划怎样经过 DAG、能力与预算检查才进入执行 | [阅读](book/zh/chapters/05-planning.md) | [05A 正常](labs/core/lab-05A-planning.md) · [05B 故障](labs/core/lab-05B-planning-fault.md) |
+| 06 | Reducer、事件重放、Checkpoint CAS 与副作用边界如何支持恢复 | [阅读](book/zh/chapters/06-state.md) | [06A 正常](labs/core/lab-06A-state.md) · [06B 故障](labs/core/lab-06B-state-fault.md) |
 
 ### 第二篇 · 知识、工具、记忆与协议
 
@@ -154,7 +154,7 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 | 39 | Self-Improving Agent 如何优化、评估、门禁和回滚 | [阅读](book/zh/chapters/39-self-improve.md) | [39A 正常](labs/core/lab-39A-self-improve.md) · [39B 故障](labs/core/lab-39B-self-improve-fault.md) |
 | 40 | 把 Runtime、协议、审批、恢复、评测与部署合成 AgentOps 闭环 | [阅读](book/zh/chapters/40-capstone.md) | [40A 正常](labs/core/lab-40A-capstone.md) · [40B 故障](labs/core/lab-40B-capstone-fault.md) |
 
-### 六个附录
+### 十一个附录
 
 | 附录 | 内容 | 入口 |
 |---|---|---|
@@ -164,6 +164,11 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 | D | 术语、不变量与状态词典 | [阅读](book/zh/appendix-d-glossary.md) |
 | E | 2026 AI Agent 研究版图、理论前沿与开放问题 | [阅读](book/zh/appendix-e-research-frontier.md) |
 | F | 行业状态、产业影响与 2026–2030 发展判断 | [阅读](book/zh/appendix-f-industry-future.md) |
+| G | 第一篇六章思考题与实践题参考答案 | [阅读](book/zh/appendix-g-part1-solutions.md) |
+| H | 第二篇七章思考题与实践题参考答案 | [阅读](book/zh/appendix-h-part2-solutions.md) |
+| I | 第三篇七章思考题与实践题参考答案 | [阅读](book/zh/appendix-i-part3-solutions.md) |
+| J | 第四篇六章进阶问题参考答案 | [阅读](book/zh/appendix-j-part4-solutions.md) |
+| K | 第五篇两章进阶问题参考答案 | [阅读](book/zh/appendix-k-part5-solutions.md) |
 
 ## 运行第一个实验
 
@@ -188,7 +193,7 @@ PYTHONPATH=src uv run python examples/chapters/ch01_foundation.py --fault
 
 ```bash
 make labs       # 运行 80 个 Core Labs
-make test       # 运行 114 项 pytest
+make test       # 运行 191 项 pytest
 make examples   # 运行 69 个 Python 示例
 make validate   # 完整本地质量门与出版验证
 ```
@@ -219,7 +224,7 @@ v1.0.0 已保存 6 项范围明确的官方实现证据：
 ## 代码与工程地图
 
 ```text
-book/zh/                      40 章中文正文、6 个附录、唯一目录源
+book/zh/                      40 章中文正文、11 个附录、唯一目录源
 book/assets/diagrams/         80 个 DOT 权威图源及可审查 SVG
 src/agentlab/                 Runtime、Tool、State、Checkpoint、Journal、Eval 等核心实现
 examples/chapters/            40 个与章节逐一对应的可执行入口
@@ -234,6 +239,9 @@ scripts/                      构建、QA、发布、校验和与可复现性门
 推荐从这些实现入口开始读代码：
 
 - [Runtime 主循环](src/agentlab/runtime.py)、[工具注册与执行](src/agentlab/tools.py)、[模型与决策结构](src/agentlab/models.py)
+- [第三篇 Runtime 机制](src/agentlab/runtime_system.py)：有界循环、结构化并发、路径能力门禁、插件回滚与 Coding Workspace
+- [第四篇专项 Agent 机制](src/agentlab/specialized_system.py)：Session/事件持久化、真实 loopback HTTP、只读 SQL、证据绑定与 durable graph
+- [第五篇协调机制](src/agentlab/coordination_system.py)：任务绑定委派、A2A durable task、所有权/权限、预算事务与幂等 join
 - [Checkpoint](src/agentlab/checkpoint.py)、[Journal](src/agentlab/journal.py)、[事件模型](src/agentlab/events.py)
 - [Workflow](src/agentlab/workflow.py)、[Tracing](src/agentlab/tracing.py)、[Evaluation](src/agentlab/eval.py)
 - [Memory](src/agentlab/memory.py)、[Retrieval](src/agentlab/retrieval.py)、[Security](src/agentlab/security.py)

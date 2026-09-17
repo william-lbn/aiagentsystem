@@ -1,52 +1,37 @@
-# Lab 17B — Sandbox 与权限：控制 Agent 的爆炸半径｜故障注入
+# Lab 17B — 路径与能力 Gate：目录逃逸｜故障注入
 
 ## 实验目标
 
-验证不变量：**workspace paths must be resolved and constrained before file I/O**
+注入 `../escape.txt`，验证路径在 I/O 前被拒绝，并用独立文件存在性检查确认没有越界副作用。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；真实临时目录；
+- 无容器、网络或 API key；
+- 预期 `L3_CONTAINED`，不外推 OS 隔离。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch17_sandbox.py`；核心机制：`src/agentlab/course_scenarios.py::sandbox`。
-
-本实验输入由 `sandbox` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::sandbox`
-- `examples/chapters/ch17_sandbox.py::main`
-
-## 实验 B：故障注入路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch17_sandbox.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "workspace paths must be resolved and constrained before file I/O", "invariant_holds": true, "observation": {"allowed": false, "root": "/tmp/agentlab-sandbox-9wlafnge", "target": "/tmp/escape.txt"}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "sandbox", "system_detected": true}
+{"contained":true,"evidence_level":"L3_CONTAINED","fault":true,"observation":{"allowed":false,"content_sha256":null,"escaped_exists":false,"reason":"path_outside_workspace","target":"../escape.txt"},"passed":true,"scenario":"sandbox"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+在 `_resolve` 的 parent containment 判定处断点，并在异常后检查 `root.parent/escape.txt`。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+原因必须为 `path_outside_workspace`，`escaped_exists=false`，`contained=true`；不能只检查“抛了异常”。

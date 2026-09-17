@@ -1,353 +1,226 @@
-# Context Engineering：信息进入模型之前已经决定了一半结果
+# Context Engineering：把信息配置成受治理的运行时视图
 
-> **本章核心判断**：Context 是 Agent 的工作内存、任务边界和决策依据；工程上要管理来源、优先级、时效、压缩、污染和预算。
+> **本章核心判断**：Context 是 Runtime 在特定身份、状态与预算下构造的受治理视图，安全硬边界必须先于相关性优化。
 
-上一章：模型基座：Token、结构化生成、工具调用与推理接口。本章把前一章已经建立的能力进一步推进到 `Context window`；下一章将进入：Messages、Structured Output 与 ReAct 轨迹。
+> Context 不是聊天记录的别名，而是某一决策时刻对状态、证据、规则与能力的有损投影。本章事实窗口截至 **2026-09-11**，实验同时注入网页指令污染和跨租户记录。
 
-![Context Engineering：信息进入模型之前已经决定了一半结果：系统边界与组件关系](../../assets/diagrams/03-context-architecture.svg)
+![多来源信息经过信任、租户、时效与预算门后形成模型视图](../../assets/diagrams/03-context-architecture.svg)
 
 ## 问题背景与学习目标
 
-Context 是 Agent 的工作内存、任务边界和决策依据；工程上要管理来源、优先级、时效、压缩、污染和预算。
+模型看不到真实世界，只能看到 Runtime 配置给它的上下文。遗漏最新审批会让合法任务停滞；遗漏租户边界会造成数据泄漏；把网页内容放进 system channel 会把证据升级为指令；塞入全部历史又会挤掉当前目标。许多被归因于“模型不聪明”的失败，本质上是控制平面构造了错误视图。
 
-在本章的 `Context window` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
-
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Context 是 Agent 的工作内存、任务边界和决策依据；工程上要管理来源、优先级、时效、压缩、污染和预算。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `context compaction must preserve higher-priority instructions and task state` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 03A` / `Lab 03B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+本章把上下文组装定义为可审计的约束优化问题。读者将学会区分 instruction、state、evidence、memory 与 tool manifest；在 token 预算下保证强制记录；处理来源、租户、时效和不可信内容；并让压缩与缓存具有可失效、可追溯语义。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+### Context 是一次决策的物化视图
 
-### Context window
+对时刻 $t$，上下文不是全局数据集 $D$，而是组装器产生的有序视图：
 
-**定义。** Context window 是当前推理的工作集，不是“所有历史”。它包含 system/developer policy、用户目标、当前状态、工具说明、检索证据以及必要的历史压缩。
+$$
+C_t = Assemble(D_t, identity_t, policy_t, budget_t, task_t)
+$$
 
-**系统责任。** Context engineering 的核心是选择和排序：哪些信息必须逐字保留，哪些可以摘要，哪些应由工具按需检索，哪些根本不该暴露给模型。
+同一条内容至少要携带 `record_id`、channel、source/provenance、tenant、freshness、authority、token cost 和生命周期。没有这些元数据，Runtime 无法判断它是否应进入当前决策。
 
-**失败边界。** 窗口过满的失败通常不是简单截断，而是重要约束被噪声稀释。应观测 context token composition、重要片段覆盖率和 stale context 比例。
+### Channel 是能力，不只是排版
 
-### Instruction hierarchy
+system/developer/user/evidence/history/tool result 在系统中具有不同权威。网页、邮件、代码注释和检索文档是**不可信数据**；即使它们写着“忽略之前的规则”，也不能被提升为指令 channel。安全目标不是让模型凭语义猜谁可信，而是让组装器在模型之前保持 data/instruction separation。
 
-**定义。** Instruction hierarchy 定义不同来源指令的优先级与信任等级，例如系统策略高于外部网页内容，用户授权高于工具返回中的嵌入式命令。
+### 状态、记忆和上下文不是同一物
 
-**系统责任。** Runtime 应尽量在消息进入模型前标记 provenance/trust domain，并在工具执行前再次做权限检查，避免把“模型遵守优先级”当作唯一防线。
+- **状态**是 Runtime 恢复所需的权威事实，如 phase、pending action 和版本；
+- **记忆**是跨时段保留、可检索、可更新的信息资产；
+- **上下文**是当前一步实际交给模型的有限视图；
+- **轨迹**是事件序列，用于重放与评测。
 
-**失败边界。** Indirect prompt injection 的本质就是不可信内容伪装成更高优先级指令。只靠提示词声明“不要听网页”无法形成强安全边界。
-
-### Budgeting
-
-**定义。** Context budgeting 是在固定 token、延迟和成本约束下，为 policy、state、history、 retrieval 和 tool schema 分配可见空间。
-
-**系统责任。** 成熟系统会为不可压缩约束保留 hard budget，为历史/检索采用动态 budget，并根据任务阶段调整，例如规划阶段多给约束，执行阶段多给 observation。
-
-**失败边界。** 没有预算策略时，长时任务会出现“越工作越笨”：旧轨迹和工具结果不断累积，导致模型注意力和 prompt cache 都恶化。
-
-### Compaction
-
-**定义。** Compaction 是把长轨迹压缩成仍能继续执行的最小充分状态，而不是普通摘要。它必须保留未完成目标、约束、关键决策、外部 effect、open question 和 provenance。
-
-**系统责任。** 好的 compaction 产物可以被下一次模型调用或新进程读取， 并通过 checkpoint/replay 继续任务。原始事件应保留在外部 evidence store，摘要只是工作集。
-
-**失败边界。** 如果摘要遗漏“已发送邮件”或“某方案已被否决”等不可逆事实，后续 Agent 会重复动作或重新走错误路径。
+把它们都塞进 messages，会失去所有权、更新语义与保留策略。
 
 ## 原理与理论基础
 
-### 系统不变量
+### 受约束的选择问题
 
-> **Invariant**：context compaction must preserve higher-priority instructions and task state
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `把所有历史无脑塞进 prompt` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “把所有历史无脑塞进 prompt”、“压缩时丢失开放任务”、“把不可信检索结果提升为系统指令” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Context window** 与 **Instruction hierarchy** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“把所有历史无脑塞进 prompt”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Context window 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Instruction hierarchy 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `按 role/source/risk 标记上下文`、`记录裁剪原因` 以及对不变量 **context compaction must preserve higher-priority instructions and task state** 的检查。
-
-**What if。** 一旦“压缩时丢失开放任务”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+令记录 $i$ 的 token 成本为 $c_i$，任务相关性、权威性、时效性与风险覆盖共同形成效用 $u_i$。可把可选记录选择近似为：
 
 $$
-C^*=\arg\max_C[Rel(C)+Fresh(C)+Auth(C)-Noise(C)],\quad tokens(C)\le B
+\max_{x_i\in\{0,1\}} \sum_i u_i x_i,
+\quad \text{s.t. }\sum_i c_i x_i\le B,
+\quad x_j=1\ \forall j\in M,
+\quad Trust(i)\land Tenant(i)
 $$
 
-Context Engineering 本质是受 token budget 约束的信息选择问题；相关性、时效性、权威性和噪声必须共同进入选择函数。
+$M$ 是必须出现的 policy/task 状态。真实效用不是独立可加的：两个片段可能冗余，也可能只有组合才有意义；所以教材实现采用可检查的启发式，而不声称求解了最优上下文。
 
-**可证伪假设。** 在事实频繁变化的任务中，加入 provenance/freshness 约束比单纯扩大 context window 更能降低 stale-fact error。
+### 信息瓶颈与位置效应
 
-**建议测量。** context precision、stale-fact error、tokens per verified task、compaction recovery rate。
+增加窗口大小不会消除选择问题。长输入会引入噪声、冲突与位置效应；工具结果还会随时间过期。上下文工程的目标不是最大化 token，而是在有限带宽中保留决策充分统计量，并显式记录被排除的内容和原因。
+
+### 不变量
+
+> **Invariant**：selected context must satisfy tenant and trust boundaries, retain mandatory state, and remain within budget
+
+本章安全不变量为：
+
+$$
+Selected(i) \Rightarrow Tenant(i)=Tenant(run)
+\land \neg(Untrusted(i)\land InstructionChannel(i))
+$$
+
+资源不变量为 $Tokens(C_t)\le B$；完备性要求所有 mandatory records 都被选入。如果强制记录本身超过预算，正确行为是失败并要求更大窗口或重构，而不是悄悄丢掉 policy。
 
 ## 关键机制与执行流程
 
-![Context Engineering：信息进入模型之前已经决定了一半结果：正常路径与故障恢复流程](../../assets/diagrams/03-context-flow.svg)
+![污染记录在模型调用前被隔离，剩余记录按预算和效用选择](../../assets/diagrams/03-context-flow.svg)
 
-**Step 1 — 按 role/source/risk 标记上下文。** `按 role/source/risk 标记上下文` 负责形成后续决策的输入。需要同时保存来源、版本/时间与必要的关联标识，避免把“当前看到的数据”误当成永远有效的事实。进入下一阶段前，对结构、权限和来源做最小验证，使 `Context window` 的状态能够在 trace 中被复现。
+完整流水线包括：
 
-**Step 2 — 压缩历史而保留决策。** `压缩历史而保留决策` 会改变信息或控制流的形态，因此必须说明哪些信息允许丢弃、哪些顺序必须保持、哪些状态不能合并。调试时记录变换前后的摘要与原因，确保 `Instruction hierarchy` 的关键状态在优化后仍满足 **context compaction must preserve higher-priority instructions and task state**。
+1. 从请求、checkpoint、策略仓、检索器、工具观测和记忆仓读取候选记录；
+2. 绑定 provenance、tenant、时间和内容类型，无法确定来源的记录降为不可信；
+3. 在模型之前拒绝跨租户和不可信 instruction channel；
+4. 先放入 mandatory policy/task/state，再在剩余预算中选择证据；
+5. 去重、排序、标注引用和过期时间，生成 assembly manifest；
+6. 模型调用后把实际使用的 manifest 摘要写入 trace；
+7. 新观测到达或状态版本变化时，使相关缓存失效。
 
-**Step 3 — 分离 evidence 与 summary。** `分离 evidence 与 summary` 是“Context Engineering：信息进入模型之前已经决定了一半结果”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Budgeting` 是否仍满足 **context compaction must preserve higher-priority instructions and task state**。
-
-**Step 4 — 记录裁剪原因。** `记录裁剪原因` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-在本章的 `Context window` 场景中，**最后一步 — 验证。** verifier 针对 `Compaction` 检查本章不变量 **context compaction must preserve higher-priority instructions and task state**。如果“把所有历史无脑塞进 prompt”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **按 role/source/risk 标记上下文 → 压缩历史而保留决策 → 分离 evidence 与 summary → 记录裁剪原因** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“把所有历史无脑塞进 prompt”尤其要检查动作前后的证据是否足以闭合不变量 **context compaction must preserve higher-priority instructions and task state**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Context window` 有关的纯计算状态通常可以重算；一旦 `压缩历史而保留决策` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **context compaction must preserve higher-priority instructions and task state**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+压缩必须输出“来源集合 + 摘要版本 + 覆盖范围 + 遗失风险”。摘要是衍生物，不应覆盖原始证据；对授权、金额、时间和否定词等高风险字段，最好保留结构化原值。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Context Engineering：信息进入模型之前已经决定了一半结果')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('context', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+### 先隔离，再排序
 
 ```python
-def context(fault=False):
- items=[('system','never execute writes without approval',100),('task','investigate payment timeout',90),('evidence','trace=abc status=503',80),('history','old unrelated chat',10)]
- budget=3 if not fault else 2
- kept=sorted(items,key=lambda x:-x[2])[:budget]
- names=[x[0] for x in kept]
- condition=('system' in names and 'task' in names and ('evidence' in names if not fault else True))
- return _ok('context',fault,{'budget':budget,'kept':names,'dropped':[x[0] for x in items if x not in kept]},'context compaction must preserve higher-priority instructions and task state',condition)
+for record in records:
+    if record.tenant_id != tenant_id:
+        excluded[record.record_id] = "tenant_mismatch"
+    elif record.untrusted and record.channel in {"system", "developer", "user"}:
+        excluded[record.record_id] = "untrusted_instruction_channel"
+    elif record.token_cost <= 0:
+        excluded[record.record_id] = "invalid_token_cost"
+    else:
+        candidates.append(record)
 ```
 
+这段顺序很重要：安全过滤不能依赖相关性评分。恶意页面可以获得极高关键词相似度；如果先按相关性选 top-k 再过滤，污染记录仍可能挤掉合法证据。
 
-### 简化假设与不能省略的机制
+### mandatory 与可选证据分开
 
+```python
+mandatory = sorted(
+    (r for r in candidates if r.mandatory),
+    key=lambda r: (-r.priority, r.record_id),
+)
+used = sum(r.token_cost for r in mandatory)
+if used > budget:
+    return ContextAssembly((), excluded, used, budget, False)
+
+optional = sorted(
+    (r for r in candidates if not r.mandatory),
+    key=lambda r: (-(r.utility() / r.token_cost), -r.priority, r.record_id),
+)
+```
+
+教材实现随后用稳定排序贪心选择，以便跨架构复现。生产版本可以使用学习排序或组合优化，但必须保留硬边界。关键断点设在 tenant/trust gate、mandatory budget 检查、排序 tie-break 和 manifest 生成处。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| Anthropic: Harness design for long-running apps | `2026-03-24` | long-running coding 中 planner/generator/evaluator 与 harness 设计影响结果。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/harness-design-long-running-apps) |
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
-| Pi Coding Agent | `@earendil-works/pi-coding-agent 0.85.1` | 把 session tree、branching、compaction、extensions/skills 看成极简 coding harness 的核心；同时注意 2026 年包名迁移到 @earendil-works。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/earendil-works/pi) |
+现代模型 API、[OpenAI Agents SDK](https://openai.github.io/openai-agents-python/)、[LangGraph](https://github.com/langchain-ai/langgraph)、[Google ADK](https://github.com/google/adk-python) 都提供某种 session/state/context 便利设施，但命名并不统一。阅读源码时要逐一追问：谁拥有权威状态？模型调用前哪一层决定 messages？tool result 是否原样回灌？checkpoint 恢复后是否重新验证 tenant/policy？压缩结果何时失效？
 
-### 源码阅读方法
+[Agent Memory as a System](https://arxiv.org/abs/2606.06448) 强调记忆不仅是存储与检索，还涉及形成、演化、治理和使用。对 Context Engineering 的启示是：读取记忆同样是一次有权限、有来源、有时间语义的数据访问，不能把向量相似度当授权。
 
-源码阅读以 **Anthropic: Harness design for long-running apps** 为第一参照，并只追与“Context Engineering：信息进入模型之前已经决定了一半结果”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“把所有历史无脑塞进 prompt”、如何在“压缩时丢失开放任务”后恢复，以及如何让 `记录裁剪原因` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+| 项目 | 本章源码入口 | 核查重点 |
+|---|---|---|
+| OpenAI Agents SDK | session、run context、model input | state 与实际 model input 的映射位置 |
+| LangGraph | state schema、checkpointer、interrupt | 恢复后 context 是否重新组装与鉴权 |
+| Google ADK | session、event、runner | session 所有权、artifact 与 event 生命周期 |
+| AgentLab ContextAssembler | record metadata 与 manifest | tenant/trust 硬过滤是否先于相关性排序 |
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
-|---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| Anthropic: Harness design for long-running apps | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Pi Coding Agent | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
+| 方法 | 可控性 | 主要收益 | 主要缺陷 |
+|---|---:|---|---|
+| 全历史拼接 | 低 | 简单、少基础设施 | 膨胀、污染、位置效应 |
+| 固定窗口截断 | 中 | 成本可预测 | 可能截掉当前关键状态 |
+| 检索 top-k | 中 | 扩展到大语料 | 相似不等于可信或新鲜 |
+| 结构化分层组装 | 高 | 硬边界与证据清晰 | 元数据和治理成本高 |
+| 学习型 context policy | 潜力高 | 适应任务分布 | 难解释、需防策略漂移 |
 
+推荐基线是“结构化硬过滤 + 可解释排序 + 可选学习 reranker”。任何学习组件都不能决定租户隔离或把数据升级成指令。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Context Engineering：信息进入模型之前已经决定了一半结果”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
 ### 实验环境
 
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Context Engineering：信息进入模型之前已经决定了一半结果”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
+Python `>=3.11,<3.14`，macOS/Linux，支持 `arm64/x86_64`；无网络、无 API key。fixture 含 policy、当前任务、trace、runbook、旧历史；故障路径再加入网页注入和另一个租户的记录。token cost 是固定测试值，不冒充具体 tokenizer 计数。
 
-### Lab 03A — 正常路径
-
-```bash
-PYTHONPATH=src python examples/chapters/ch03_context.py
-```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::context`
-- `examples/chapters/ch03_context.py::main`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "context compaction must preserve higher-priority instructions and task state", "invariant_holds": true, "observation": {"budget": 3, "dropped": ["history"], "kept": ["system", "task", "evidence"]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "context", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 03A](../../../labs/core/lab-03A-context.md)。
-
-### Lab 03B — 故障注入
+### Lab 03A — 受预算约束的合法视图
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch03_context.py --fault
+PYTHONPATH=src python3 examples/chapters/ch03_context.py
 ```
 
-**本发布包实际输出：**
+实际输出应选择 `policy/task/trace/runbook`，使用 86/90 tokens，并以 `token_budget` 排除 `old-chat`。验收要求 mandatory 记录存在、预算不超限且 manifest 可解释。[Lab 03A](../../../labs/core/lab-03A-context.md)
 
-```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "context compaction must preserve higher-priority instructions and task state", "invariant_holds": false, "observation": {"budget": 2, "dropped": ["evidence", "history"], "kept": ["system", "task"]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "context", "system_detected": false}
+### Lab 03B — 注入与跨租户双故障
+
+```bash
+PYTHONPATH=src python3 examples/chapters/ch03_context.py --fault
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 03B](../../../labs/core/lab-03B-context-fault.md)。
-
-### 观察与证据
-
+实际输出必须分别给出 `web-injection: untrusted_instruction_channel` 与 `other-tenant: tenant_mismatch`，两者均不在 selected，证据为 `L3_CONTAINED`。关键断点是 `ContextAssembler.assemble` 的前两个 gate。[Lab 03B](../../../labs/core/lab-03B-context-fault.md)
 
 ## 工程场景与系统设计
 
-本章沿用第 1 章“研发助手”教学负载，重点评估 12 回合内 context 膨胀、证据裁剪和 token 预算，而不重复把同一数字包装成新的性能实测。
+事故诊断 Agent 至少需要：当前 incident 目标、写操作策略、最近 trace、版本匹配的 runbook、工具能力和上一步未完成动作。网页搜索结果只能作为 evidence；另一个租户的相似事故即使相关也不得进入。工具执行后，新的 trace 会改变 freshness，旧的 context cache 必须按 state/policy/source version 联合失效。
 
-
-### 上线前必须补齐
-
-- 围绕 **Context Engineering** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `上下文是有限资源，压缩必须保存任务状态、权限边界和证据来源。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+Context manifest 应记录 selected/excluded record IDs、原因、source digest、版本、token budget 与实际 provider token usage。敏感正文可脱敏或外部保存，但元数据要足以复盘“模型当时看到了什么”。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+| 失败 | 机制 | 诊断 |
+|---|---|---|
+| 指令污染 | 不可信数据进入高权威 channel | 检查 source→channel 映射与 manifest |
+| 跨租户泄漏 | 检索过滤在 rerank 后或未绑定身份 | 比较 run tenant 与每条记录 tenant |
+| 陈旧状态 | cache key 缺 state/policy version | 重建失效链与 freshness |
+| 关键事实丢失 | mandatory 未单独预算 | 检查 excluded reason 与 token 分配 |
+| 摘要扭曲 | 衍生摘要覆盖原始证据 | 对照 source digest 与高风险字段 |
 
-- **把所有历史无脑塞进 prompt**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **压缩时丢失开放任务**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **把不可信检索结果提升为系统指令**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错时不要只保存最终 prompt；还要保存候选集合、排除原因和排序分数。否则无法区分检索没找到、组装器丢掉、还是模型忽略了证据。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+指标应覆盖 retrieval recall、context precision、mandatory coverage、cross-tenant rejection、untrusted-channel rejection、freshness violation、assembly latency、实际 token 和单位 verified task 成本。降低 token 不是孤立目标：若节省 20% 输入却使工具重试增加，端到端成本可能更高。
 
-- `task success rate`
-- `structured-decision parse failure`
-- `context tokens / turn`
-- `model turns / task`
-- `trajectory completeness`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Instruction hierarchy` 的生命周期时，要重新验证 **context compaction must preserve higher-priority instructions and task state**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “把所有历史无脑塞进 prompt”、“压缩时丢失开放任务”、“把不可信检索结果提升为系统指令”：只有正常路径与对应 fault path 都保持 **context compaction must preserve higher-priority instructions and task state**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+可靠性测试应包括边界预算、同分稳定排序、空检索、冲突 policy、多语言注入、超长工具返回、状态更新后的缓存失效和摘要回溯。线上抽样重放必须脱敏并固定 source versions。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 模型输出仍然是概率性决策，不能提供传统事务语义
-- 没有外部 verifier 时，最终答案不能等同于客观成功
-- 上下文窗口不是无限数据库，历史必须被选择与压缩
-- 模型能力升级会改变最佳 harness 假设，因此边界要可替换
+本章效用函数是教学启发式，不代表相关性的普适真值；固定 token cost 也不等同于 provider tokenizer。实验能够证明 tenant/trust/budget 控制流，却不能证明模型一定使用了所选证据，更不能证明对所有 prompt injection 鲁棒。
 
-选择方案时要回到本章边界：如果业务不能接受“把所有历史无脑塞进 prompt”，就必须为 `Context window` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Instruction hierarchy` 决策交给模型，但要用 `记录裁剪原因` 保持结果可验证。**Anthropic: Harness design for long-running apps** 与 **OpenAI Agents SDK** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Context Engineering 只能决定模型能看到什么，不能保证输入事实新鲜、完整或被授权。来源不明、时间边界模糊或相互冲突的上下文必须携带 provenance 与失效策略，否则更长的上下文只会放大错误。
+严格隔离会降低“利用一切信息”的表面能力，但它控制了数据泄漏和权限升级。必须通过拒绝率、人工升级率与任务成功率共同选择策略，而不是只优化单一 benchmark。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+长时程 Harness 研究正在把上下文问题从单次 prompt 扩展到跨任务状态管理。[Long-Horizon Agent Benchmark](https://arxiv.org/abs/2608.01964) 指向长期执行中环境、状态和验证的系统性挑战；记忆系统研究则进一步关注何时写、何时忘、如何治理以及如何评价记忆对策略的因果贡献。
 
-- **[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)**：提出 reasoning/action 交错轨迹，连接语言推理与外部环境动作。
-- **[Anthropic: Harness design for long-running apps](https://www.anthropic.com/engineering/harness-design-long-running-apps)**（2026-03-24）：long-running coding 中 planner/generator/evaluator 与 harness 设计影响结果。
-- **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**（v0.22.0 @ 4df9ecf）：Agent/Runner/Tools/Handoffs/Guardrails/Sessions/HITL/Tracing；0.22.0 包含 runtime hardening。
+开放问题包括：怎样学习 context policy 又不越过硬权限；怎样为摘要定义可量化的 loss budget；怎样在百万级工具/资源空间中联合检索能力与证据；怎样评价模型“没有使用”某条上下文；怎样使跨 Agent 传递的上下文保持来源、身份和授权链。
 
+### 深度审计与研究证据链：上下文视图
 
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- Agent Memory: Characterization and System Implications of Stateful Long‑Horizon Workloads（arXiv 2606.06448; 2026‑06‑04）：memory system cost, write/read path, freshness‑latency tradeoffs。
-- MemGym: a Long‑Horizon Memory Environment for LLM Agents（arXiv 2605.20833; 2026‑05‑20）：agentic memory evaluation across tool use, deep research, coding, web。
-
-**本章吸收的变化。** Context Engineering 是预算约束下的证据选择问题，不是“把历史塞满窗口”。相关性、时效、权威与噪声需要共同进入选择函数。这些研究/规范的价值不在于替换本章原理， 而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Context window`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **context compaction must preserve higher-priority instructions and task state** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“把所有历史无脑塞进 prompt”和“压缩时丢失开放任务”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Context Engineering** 的可验证性。Anthropic Context Engineering 将 context 视为工程资源；LongHorizon-Harness 进一步把显式任务状态移出 prompt，减少长任务遗忘。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Context window` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“把所有历史无脑塞进 prompt”与“压缩时丢失开放任务”同时发生时，**Anthropic: Harness design for long-running apps** 与 **OpenAI Agents SDK** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Instruction hierarchy` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“把不可信检索结果提升为系统指令”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Context Engineering
-
-本章重新审计后的核心结论是：**上下文是有限资源，压缩必须保存任务状态、权限边界和证据来源。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[ReAct](https://arxiv.org/abs/2210.03629)**：reasoning/action 交错轨迹让模型决策可被放进 trajectory，而不是隐藏在最终回答里。
-- **[Toolformer](https://arxiv.org/abs/2302.04761)**：说明模型可学习工具调用，但工程系统仍要在模型外做 schema 与权限验证。
-- **[Anthropic Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)**：强调先从简单可组合的 workflow/agent 模式出发。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。LangGraph state、OpenAI Sessions、Pi compaction 都是 context/state 边界的不同实现。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Context Engineering 的输入、消息和状态是否能被显式记录；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章把 source metadata、选择 manifest 和模型实际输入分成三个可审计对象。记忆/长时程论文说明研究方向，框架源码帮助定位组装边界，而注入/跨租户实验直接检验本地过滤器；它并不外推为对未知攻击的通用防御率。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Context Engineering 的本质是构造受治理的决策视图。先做 trust/tenant 硬过滤，再保证 mandatory 状态，最后在预算中优化证据；每次组装都应产生可审计 manifest。
 
-1. 本章不变量是：**context compaction must preserve higher-priority instructions and task state**；
-2. `Context window` 必须是可观察软件边界，而不是 prompt 约定；
-3. `按 role/source/risk 标记上下文` 与 `记录裁剪原因` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
-
-### 常见误区
-
-- 把所有历史无脑塞进 prompt
-- 压缩时丢失开放任务
-- 把不可信检索结果提升为系统指令
+进阶实践可加入冲突检测：当两个同权威 policy 对同一动作给出矛盾规则时，组装器不选择其一，而是返回 `POLICY_CONFLICT` 并阻止模型调用；再用 property-based test 验证任意输入顺序下结果稳定。
 
 ### 思考题与实践
 
-- **Why：** 为什么 `Context window` 不能只靠模型“记住”？
-- **What if：** 如果在 `按 role/source/risk 标记上下文` 与 `记录裁剪原因` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch03_context.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
+1. 为什么最大 context window 不能消除 Context Engineering？
+2. 相关性、权威性、时效性与租户边界为何不能压成一个相似度分数？
+3. mandatory context 超预算时，为何不应静默截断？
+4. 如何证明摘要没有篡改金额、否定词和审批状态？
+5. 设计一个同时测量任务质量与泄漏风险的 context ablation。
 
-下一章进入 **Messages、Structured Output 与 ReAct 轨迹**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+参考答案见[附录 G：第三章参考答案](../appendix-g-part1-solutions.html#part1-solutions-ch03)。

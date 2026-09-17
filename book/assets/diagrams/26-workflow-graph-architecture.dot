@@ -1,16 +1,20 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="State graph",fillcolor="#edf5ff"];
-n2 [label="Node/Edge",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Checkpointer",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.30",ranksep="0.55"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=12,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=9,color="#5d6d7e"];
+definition [label="Graph Definition\nNode · Edge · Schema · Signature",fillcolor="#edf5ff"];
+runtime [label="Graph Runtime\nReducer · Router · Interrupt",fillcolor="#fff4e6"];
+checkpoint [label="Checkpoint Store\nState · Version · Topology",fillcolor="#f6efff"];
+effect [label="Effect Protocol\nIntent · Key · Receipt · Reconcile",fillcolor="#fdecea"];
+external [label="External Systems",fillcolor="#eef9f1"];
+resume [label="Resume Input / Approval",fillcolor="#edf5ff"];
+verify [label="Terminal Verifier",fillcolor="#eef9f1"];
+definition->runtime;
+runtime->checkpoint [label="CAS commit"];
+runtime->effect;
+effect->external;
+external->effect [label="observation"];
+effect->checkpoint [label="evidence",constraint=false];
+resume->runtime;
+runtime->verify;
 }

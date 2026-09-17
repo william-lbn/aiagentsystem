@@ -2,16 +2,17 @@
 
 ## 实验目标
 
-验证不变量：**multi-agent specialization requires explicit ownership and context isolation**
+注入 confused-deputy 式所有权错误：Coder 同时携带自己的 `repository.write` 和 Researcher 所需的 `sources.read`，尝试 claim `research`。验证系统不会把“有能力”误判成“拥有该 work order”，且事务 rollback 后预算、任务与 effect 均未改变。
+
+## 可证伪假设与故障位置
+
+假设：identity/owner 与 capability/scope 必须同时成立。只检查 scope 的 scheduler 会允许权限较大的 worker 横向接管任务，破坏责任链和上下文隔离。
+
+故障位置在 `MultiAgentCoordinator.claim`；预期错误为 `work_order_owner_mismatch`，发生在预算预留和状态更新之前。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 28A 相同：Python 3.11–3.13、标准库 SQLite、本仓库 AgentLab；无模型、网络、Docker 或 API key。先运行 28A 建立正常基线。
 
 ## 环境准备
 
@@ -22,31 +23,44 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch28_multi_agent.py`；核心机制：`src/agentlab/course_scenarios.py::multi_agent`。
+入口为 `examples/chapters/ch28_multi_agent.py`，场景在 `course_scenarios.multi_agent`，持久调度实现为 `coordination_system.MultiAgentCoordinator`。
 
-本实验输入由 `multi_agent` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::multi_agent`
-- `examples/chapters/ch28_multi_agent.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch28_multi_agent.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+注意这不是“scope 不足”测试：Coder 被故意赋予 `sources.read`，从而确认系统确实检查 owner。异常由场景捕获后，独立读取 run snapshot 与 effect count。
+
+## 实际验证输出（本发布源码 QA 生成）
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "multi-agent specialization requires explicit ownership and context isolation", "invariant_holds": false, "observation": {"contexts": {"coder": ["repo:x", "source:a"], "researcher": ["source:a"]}, "isolated": false, "tasks": {"coder": "implement patch", "researcher": "collect evidence"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "multi-agent", "system_detected": false}
+{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "multi-agent execution requires explicit ownership, least-privilege context, budget conservation and verified join semantics", "invariant_holds": true, "observation": {"effect_count": 0, "initial_frontier": ["patch", "research"], "rejected": "work_order_owner_mismatch", "snapshot": {"budget_limit": 9, "budget_reserved": 0, "status": "RUNNING", "tasks": {"patch": "READY", "research": "READY", "verify": "READY"}}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "multi-agent", "system_detected": true}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- `claim` 读取 work order 后的 owner 比较；
+- exception handler 前的 SQLite transaction；
+- rollback 后 `run_snapshot` 的 `budget_reserved`；
+- `effect_count`，确认没有提前发布；
+- `_ok` 的 evidence classification，确认场景已列入 contained faults。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+PASS 当且仅当：退出码 0；错误为 `work_order_owner_mismatch`；三项任务仍为 READY；预算预留为 0；effect count 为 0；`system_detected=true`、`contained=true`、`evidence_level=L3_CONTAINED`。
+
+L3 表示所有权故障被被测 scheduler 主动阻断；不表示任务随后被重新调度、业务已经恢复或分布式 worker lease 已验证。
+
+## 反例与进阶注入
+
+- 用正确 owner 但删除 required scope，应得到 `work_order_scope_missing`；
+- 并发 claim 使预算可能超过上限，确认只有一个事务成功；
+- 在依赖未完成时 claim reviewer，确认 frontier 检查阻断；
+- 让旧 owner 在任务重新分配后提交 completion，加入 lease/version 后验证拒绝；
+- 让两个模型产出表面一致但引用同一错误来源的 artifact，证明多数投票不是独立 verifier。
+
+## 结果解释与声明边界
+
+观察重点是拒绝后的持久状态没有变化，而不只是捕获了异常。实验覆盖单 SQLite scheduler 的 owner/scope 分离；生产系统还需 authenticated worker identity、lease/fencing token、跨租户 ACL、消息重放防护与真实 artifact verifier。

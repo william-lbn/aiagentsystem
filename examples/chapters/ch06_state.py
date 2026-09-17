@@ -4,7 +4,7 @@ from agentlab.course_scenarios import run_scenario
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Agent State、Trajectory 与可调试性")
+    p = argparse.ArgumentParser(description="Agent State 与 Trajectory：可恢复、可重放、可并发的执行语义")
     p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
     args = p.parse_args()
     result = run_scenario("state", fault=args.fault)

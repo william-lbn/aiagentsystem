@@ -1,16 +1,17 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Dispatch",fillcolor="#edf5ff"];
-n2 [label="Policy",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Timeout",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+intent [label="Canonical Action Intent\nAction ID · Args Hash · Idempotency Key",fillcolor="#edf5ff"];
+journal [label="Durable Effect Journal\nPREPARED / UNKNOWN / COMMITTED",fillcolor="#fff4e6"];
+remote [label="外部系统\nIdempotency Ledger",fillcolor="#eef9f1"];
+reconcile [label="Reconciliation Worker\n查询而非盲重试",fillcolor="#fdecea"];
+verify [label="业务 Verifier\n后置条件与 Receipt",fillcolor="#f6efff"];
+intent->journal [label="persist PREPARED"];
+journal->remote [label="authorized call"];
+remote->journal [label="reply or timeout"];
+journal->reconcile [label="UNKNOWN"];
+reconcile->remote [label="lookup"];
+reconcile->journal [label="COMMITTED / NOT_APPLIED"];
+journal->verify;
 }

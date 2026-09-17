@@ -1,52 +1,36 @@
-# Lab 25A — Research Agent：证据链、引用与报告生成｜正常路径
+# Lab 25A — Claim 与精确证据片段绑定｜正常路径
 
 ## 实验目标
 
-验证不变量：**every externally checkable claim needs a traceable evidence object**
+读取真实来源文件，生成 URI/content SHA-256，把 claim 绑定到精确字符区间和 quote，形成可复核 evidence object。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13；标准库文件与 `hashlib`；无需网络或模型。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
+source .venv/bin/activate
+export PYTHONPATH=src
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch25_research_agent.py`；核心机制：`src/agentlab/course_scenarios.py::research_agent`。
+```bash
+python examples/chapters/ch25_research_agent.py
+```
 
-本实验输入由 `research_agent` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+实际输出：
+
+```json
+{"source_uri_scheme":"file","source_sha256":"7b60ca286b55c0ae","claim_bound":true,"quote":"independent verifier","span":[30,50],"evidence_level":"L1_MECHANISM","passed":true}
+```
 
 ## 调试断点
 
-- `src/agentlab/course_scenarios.py::research_agent`
-- `examples/chapters/ch25_research_agent.py::main`
+在 `EvidenceBinder.ingest_file` 的 hash 和 `bind` 的 range/slice/quote comparison 停下；确认 report 使用同一 source digest。
 
-## 实验 A：正常路径
+## 验收标准
 
-```bash
-PYTHONPATH=src uv run python examples/chapters/ch25_research_agent.py
-```
-
-### 实际验证输出（本发布包 QA 生成）
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "every externally checkable claim needs a traceable evidence object", "invariant_holds": true, "observation": {"claims": [["MCP protocol revision", "s1"], ["A2A interoperability", "s2"]], "missing_evidence": []}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "research-agent", "system_detected": false}
-```
-
-### 验收标准
-
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
-
-### 结果解释
-
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；quote 与 source slice 逐字符相等；digest 存在；claim 被绑定。实验不证明 quote 语义一定蕴含 claim。

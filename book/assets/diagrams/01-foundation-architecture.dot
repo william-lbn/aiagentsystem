@@ -1,16 +1,19 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Agent vs Workflow",fillcolor="#edf5ff"];
-n2 [label="Context/Tool/Runtime",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Trajectory evidence",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.35",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+goal [label="目标 / 环境观察",fillcolor="#fff4e6"];
+model [label="决策面\n模型 · Context · Planner",fillcolor="#edf5ff"];
+intent [label="候选 Intent\n不是副作用",fillcolor="#edf5ff"];
+govern [label="治理面\n身份 · 策略 · 审批 · 预算",fillcolor="#fdecea"];
+runtime [label="执行面\nRuntime · Tool · Sandbox",fillcolor="#eef9f1"];
+world [label="外部世界\n可逆 / 不可逆效果",fillcolor="#fff4e6"];
+evidence [label="证据面\nEvent · Journal · Receipt · Verifier",fillcolor="#f6efff"];
+goal->model [label="O(t), C(t), S(t), G"];
+model->intent [label="propose"];
+intent->govern [label="authorize"];
+govern->runtime [label="allow / deny"];
+runtime->world [label="effect"];
+world->evidence [label="observe"];
+evidence->model [label="verified feedback",style=dashed,color="#7d3c98"];
 }

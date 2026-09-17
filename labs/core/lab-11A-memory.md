@@ -1,52 +1,37 @@
-# Lab 11A — 长期记忆：从聊天历史到可治理的用户状态｜正常路径
+# Lab 11A — 双时态偏好与来源解析｜正常路径
 
 ## 实验目标
 
-验证不变量：**long-term memory needs provenance/confidence and conflict resolution, not append-only chat history**
+验证长期记忆读取经过 tenant、subject、key 与 valid-time 过滤，并返回稳定 memory identity，而非从聊天文本临时猜测。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python 3.11–3.13，无网络/API key。写入 `mem-zh`：tenant A、subject user-7、key `preferred_language`、value `zh-CN`、authority 100、confidence 1.0、valid/recorded UTC 时间及 CRM source。
 
 ## 环境准备
 
-```bash
-python -m pip install uv==0.10.0
-uv sync --locked --all-groups --no-install-project
-```
+执行 `uv sync --locked --all-groups --no-install-project`；实验使用固定 UTC 时间，避免当前时钟导致不确定结果。
 
 ## 实验代码
-
-入口：`examples/chapters/ch11_memory.py`；核心机制：`src/agentlab/course_scenarios.py::memory`。
-
-本实验输入由 `memory` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::memory`
-- `examples/chapters/ch11_memory.py::main`
-
-## 实验 A：正常路径
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch11_memory.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "long-term memory needs provenance/confidence and conflict resolution, not append-only chat history", "invariant_holds": true, "observation": {"candidates": [{"confidence": 0.98, "key": "preferred_language", "kind": "semantic", "value": "zh-CN"}], "chosen": {"confidence": 0.98, "key": "preferred_language", "kind": "semantic", "value": "zh-CN"}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "memory", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"invariant_holds":true,"observation":{"candidates":["mem-zh"],"quarantined":{},"selected":"mem-zh","value":"zh-CN"},"passed":true,"scenario":"memory"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+观察 `parse_utc`、scope/time filter、authority sort 和 resolution；记录每条 memory identity 被保留或隔离的原因。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+PASS 要求 selected identity/value 准确且无 quarantine。将 query time 移到 valid_from 之前，必须得到 no selection 而不是自动回退到旧聊天。
+
+## 证据边界
+
+内存实现验证语义，不证明持久化事务、加密、备份删除或向量索引。生产实验要加入数据库、row-level policy、并发写与 crash recovery。

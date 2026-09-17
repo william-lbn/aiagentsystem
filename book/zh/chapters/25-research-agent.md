@@ -1,190 +1,106 @@
 # Research Agent：证据链、引用与报告生成
 
-> **本章核心判断**：Research Agent 的质量取决于搜索策略、来源分级、引用粒度、冲突处理和报告 verifier，而不只是答案流畅。
+> **本章命题**：Research Agent 的产品不是“像研究报告的文字”，而是一组可分解 claim 与其来源版本、精确证据片段、检索时间、冲突关系和推断过程。引用存在不等于引用支持结论。
 
-上一章：Data Agent：SQL、Python 与可审计分析。本章把前一章已经建立的能力进一步推进到 `Source ranking`；下一章将进入：Graph Runtime：LangGraph / ADK / MAF 的共同抽象。
+Data Agent 把数值绑定到查询 artifact；本章把外部可核验陈述绑定到 source artifact。我们用真实文件、SHA-256 和精确字符区间验证引用漂移；下一章把研究流程编排进 durable graph。
 
-![Research Agent：证据链、引用与报告生成：系统边界与组件关系](../../assets/diagrams/25-research-agent-architecture.svg)
+![Research Agent 的检索、证据、主张和验证关系](../../assets/diagrams/25-research-agent-architecture.svg)
 
 ## 问题背景与学习目标
 
-Research Agent 的质量取决于搜索策略、来源分级、引用粒度、冲突处理和报告 verifier，而不只是答案流畅。
+研究型任务面临来源质量差异、网页更新、时间截止、同名实体、冲突证据和“引用装饰”。模型可能给出真实 URL，却让来源只支持相邻事实；也可能把发布日期当事件日期，或将二手报道覆盖官方规范。
 
-在本章的 `Source ranking` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
-
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Research Agent 的质量取决于搜索策略、来源分级、引用粒度、冲突处理和报告 verifier，而不只是答案流畅。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `every externally checkable claim needs a traceable evidence object` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 25A` / `Lab 25B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+读者应能构建 source artifact、claim-evidence graph、citation entailment、temporal validity 与 conflict set；区分 retrieval recall、source quality、claim support 和 synthesis quality；运行逐字节/逐字符引用实验，并知道何时必须输出 UNKNOWN 而不是补全事实。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+**Source artifact** 至少包含 URI、publisher、retrieved-at、content digest、正文/页码和许可信息；**claim** 是可单独判真假的陈述；**evidence edge** 指向精确 span/table/figure；**inference edge** 说明从证据到结论还做了哪些计算或假设。
 
-### Source ranking
+引用验证有三个层级：地址有效；片段确实来自该版本；片段语义支持 claim。前两层可机械检查，第三层通常需要规则、模型或人工复核。若只保存 URL，网页改变后无法证明当时看到的内容；若只保存 quote，又可能失去上下文。
 
-**定义。** 按一手性、权威性、时效、方法透明度和独立性给来源排序，而不是按搜索排名或措辞相似度。
-
-**系统责任。** 它决定哪些材料可支撑事实、哪些只能作为线索，并为冲突来源设置优先级和降级规则。
-
-**失败边界。** 不做来源分层会把转载、SEO 页面或厂商宣传与原始论文等价，导致 citation 数量很多但证据质量很低。
-
-### Claim extraction
-
-**定义。** 把文献中的结论拆成带范围、日期、总体、指标和不确定性的原子 claim。
-
-**系统责任。** 原子 claim 便于去重、冲突检测和逐条验证，防止在综合时悄悄扩大原作者结论。
-
-**失败边界。** 若只保存长摘要，模型很容易把“在某 benchmark 上”改写成“普遍更强”，或遗漏否定条件。
-
-### Citation mapping
-
-**定义。** 建立 claim 到具体 source/location 的可追踪映射，要求引用真正蕴含该 claim。
-
-**系统责任。** Citation mapping 让报告 verifier 可以检查 coverage、entailment、freshness 和 source diversity，而不是只看是否有链接。
-
-**失败边界。** citation laundering 会出现“句末有引用但来源根本没说这件事”；二手资料还可能把原始结论继续误传。
-
-### Report verifier
-
-**定义。** 在交付前检查事实覆盖、矛盾、引用蕴含、日期截止、计算与关键反例的独立步骤。
-
-**系统责任。** Verifier 应与写作 Agent 分离，优先核查高影响 claim，并把证据不足明确标成 unknown/uncertain。
-
-**失败边界。** 让同一个生成器自评“引用正确”会产生确认偏差；报告越长，局部引用错误越容易被流畅叙事掩盖。
+Primary source 并不总是自动正确，但对协议、版本、法律和产品行为通常应优先于二手摘要。多个来源冲突时，系统应保留 conflict set 和适用时间，而不是选一句最顺耳的话。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：every externally checkable claim needs a traceable evidence object
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `引用堆在文末不支撑 claim` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “引用堆在文末不支撑 claim”、“过时资料当最新”、“跨来源冲突被忽略” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Source ranking** 与 **Claim extraction** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“引用堆在文末不支撑 claim”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Source ranking 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Claim extraction 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `离线语料保证确定性`、`未知结论不强答` 以及对不变量 **every externally checkable claim needs a traceable evidence object** 的检查。
-
-**What if。** 一旦“过时资料当最新”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+令报告主张集合为 (C)，来源集合为 (S)，证据边为 (E\subseteq C\times S\times Span)。最低覆盖率：
 
 $$
-G=(Claims,Sources,E),\qquad (c,s)\in E\iff s\models c
+coverage=\frac{|\{c\in C:\exists(s,span),(c,s,span)\in E\land verified\}|}{|C|}.
 $$
 
-Research Agent 的核心 artifact 是 claim-evidence graph；引用存在不代表引用真正支持结论。
+覆盖率为 1 仍不代表研究正确，因为 span 可能不蕴含 claim、来源可能过时、推断可能无效。因而 verifier 还需检查 source digest、quote match、publisher/日期、冲突与 claim scope。
 
-**可证伪假设。** 独立 citation-entailment/contradiction verifier 能降低“有引用但不支持”错误。
+> **Invariant**: every externally checkable claim binds an exact source span and immutable source digest, or is explicitly marked unsupported/uncertain.
 
-**建议测量。** claim coverage、citation entailment、source diversity、contradiction rate。
+这一不变量允许没有答案，却不允许无证据的确定语气。内部建议、价值判断可有不同证据要求，但事实性数字、协议字段、版本行为和 benchmark 结论必须可追溯。
 
 ## 关键机制与执行流程
 
-![Research Agent：证据链、引用与报告生成：正常路径与故障恢复流程](../../assets/diagrams/25-research-agent-flow.svg)
+![Research Agent 从问题分解到 claim-level 审计的流程](../../assets/diagrams/25-research-agent-flow.svg)
 
-**Step 1 — 离线语料保证确定性。** `离线语料保证确定性` 是“Research Agent：证据链、引用与报告生成”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Source ranking` 是否仍满足 **every externally checkable claim needs a traceable evidence object**。
+1. 把问题分解为带时间、实体与证据标准的 subquestions；
+2. 先查官方/原始来源，再用高质量二手来源发现冲突或上下文；
+3. 抓取后立即保存 retrieval time、content digest 和 locator；
+4. 抽取 atomic claims，禁止一条引用挂在含多个事实的长句末尾；
+5. 绑定精确 span/page/table，并执行 quote/digest 校验；
+6. 对数字、版本、日期和否定陈述使用独立交叉验证；
+7. 综合时保留 observation、inference、uncertainty 和 disagreement；
+8. 发布前运行 citation coverage/entailment/staleness/URL 审计。
 
-**Step 2 — claim-evidence 映射。** `claim-evidence 映射` 是“Research Agent：证据链、引用与报告生成”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Claim extraction` 是否仍满足 **every externally checkable claim needs a traceable evidence object**。
-
-**Step 3 — 冲突来源显式列出。** `冲突来源显式列出` 是“Research Agent：证据链、引用与报告生成”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Citation mapping` 是否仍满足 **every externally checkable claim needs a traceable evidence object**。
-
-**Step 4 — 未知结论不强答。** `未知结论不强答` 是“Research Agent：证据链、引用与报告生成”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Report verifier` 是否仍满足 **every externally checkable claim needs a traceable evidence object**。
-
-在本章的 `Source ranking` 场景中，**最后一步 — 验证。** verifier 针对 `Report verifier` 检查本章不变量 **every externally checkable claim needs a traceable evidence object**。如果“引用堆在文末不支撑 claim”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **离线语料保证确定性 → claim-evidence 映射 → 冲突来源显式列出 → 未知结论不强答** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“引用堆在文末不支撑 claim”尤其要检查动作前后的证据是否足以闭合不变量 **every externally checkable claim needs a traceable evidence object**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Source ranking` 有关的纯计算状态通常可以重算；一旦 `claim-evidence 映射` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **every externally checkable claim needs a traceable evidence object**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+动态网页、登录墙和 PDF 解析会制造内容差异。无法合法保存全文时，至少保存允许范围内的 locator、短摘录、hash/metadata 与获取方式；同时尊重版权和访问条款。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Research Agent：证据链、引用与报告生成')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('research-agent', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+`EvidenceBinder` 读取真实 UTF-8 文件，保存 `file:` URI 与 SHA-256。绑定 claim 时检查 source 是否存在、span 是否越界以及 quote 是否逐字符相同：
 
 ```python
-def research_agent(fault=False):
- corpus={'s1':'MCP v2 supports the 2026-07-28 protocol revision.','s2':'A2A 1.0 standardizes agent interoperability.'}
- claims=[('MCP protocol revision','s1'),('A2A interoperability','s2')]
- if fault: claims.append(('unverified benchmark gain','missing'))
- missing=[c for c,s in claims if s not in corpus]
- return _ok('research-agent',fault,{'claims':claims,'missing_evidence':missing},'every externally checkable claim needs a traceable evidence object',not missing if not fault else bool(missing))
+binder = EvidenceBinder()
+source = binder.ingest_file("runtime-note", source_path)
+claim = binder.bind(
+    "完成状态需要独立验证器",
+    "runtime-note",
+    30, 50,
+    "independent verifier",
+)
+assert claim.source_sha256 == source.sha256
 ```
 
+如果内容或 offset 变化，旧 citation 不会静默接受：
 
-### 简化假设与不能省略的机制
+```python
+try:
+    binder.bind("完成状态需要独立验证器", "runtime-note",
+                30, 50, "outdated quotation")
+except EvidenceViolation as exc:
+    assert str(exc) == "quote_mismatch"
+```
 
+实现位于 `src/agentlab/specialized_system.py`。精确 quote 是必要条件，不是 entailment 充分条件；生产系统还要存 byte/page locator、HTML/PDF canonicalization、许可和访问时间。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| OpenAI PaperBench | `2025 benchmark` | 论文复现任务与细粒度 rubric/grader。 | 以官方 docs/release/source tree 为准 | [官方来源](https://openai.com/index/paperbench/) |
-| Anthropic: Demystifying evals for AI agents | `2026-01-09` | Agent eval 需要 task/environment/trajectory/grader 共同设计。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) |
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
+| 系统能力 | 应保留的证据 | 常见误区 |
+|---|---|---|
+| Web search / browsing tool | query、结果、打开页面、retrieved-at、引用 | 把 search snippet 当正文 |
+| RAG/research pipeline | chunk/source/version、ranking、claim edge | 只评 retrieval，不评生成 claim |
+| OpenAI Responses 内置搜索/文件工具 | response item、citation/annotation 与 provider trace | provider citation 不替代应用级 claim audit |
+| 学术/规范研究 | DOI/版本/tag/发布日期、页码/章节 | 预印本、发布版、修订版混用 |
+| 本章 EvidenceBinder | local artifact hash + exact span | 不证明来源权威性或语义蕴含 |
 
-### 源码阅读方法
-
-源码阅读以 **OpenAI PaperBench** 为第一参照，并只追与“Research Agent：证据链、引用与报告生成”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“引用堆在文末不支撑 claim”、如何在“过时资料当最新”后恢复，以及如何让 `未知结论不强答` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+阅读任何 Research Agent 实现时，先确认 retrieval result 如何变成 durable source，再找 claim 与 citation 的结构；若中间只有 prompt 文本，就很难做系统性审计。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
-|---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| OpenAI PaperBench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Anthropic: Demystifying evals for AI agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 方案 | 成本 | 可审计性 | 适用任务 |
+|---|---:|---:|---|
+| 单次搜索后生成 | 低 | 低 | 低风险探索 |
+| 检索—写作—统一引用 | 中 | 中 | 普通综述，但易 citation drift |
+| claim-first evidence graph | 高 | 高 | 技术规范、尽调、研究报告 |
+| 双代理/人工独立审计 | 更高 | 更高 | 高影响决策与发布 |
 
+Claim-first 会增加结构化开销，却能精确定位“不支持”“过时”“冲突”和“推断过强”。模型规模不能消除来源治理问题。
 
 ## 可复现实验
-
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Research Agent：证据链、引用与报告生成”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Research Agent：证据链、引用与报告生成”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
 
 ### Lab 25A — 正常路径
 
@@ -192,17 +108,7 @@ def research_agent(fault=False):
 PYTHONPATH=src python examples/chapters/ch25_research_agent.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::research_agent`
-- `examples/chapters/ch25_research_agent.py::main`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "every externally checkable claim needs a traceable evidence object", "invariant_holds": true, "observation": {"claims": [["MCP protocol revision", "s1"], ["A2A interoperability", "s2"]], "missing_evidence": []}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "research-agent", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 25A](../../../labs/core/lab-25A-research-agent.md)。
+实际输出包含 `source_uri_scheme=file`、source digest、`span=[30,50]`、`quote=independent verifier` 和 `claim_bound=true`；证据等级 `L1_MECHANISM`。详见 [Lab 25A](../../../labs/core/lab-25A-research-agent.md)。
 
 ### Lab 25B — 故障注入
 
@@ -210,145 +116,57 @@ PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；�
 PYTHONPATH=src python examples/chapters/ch25_research_agent.py --fault
 ```
 
-**本发布包实际输出：**
+实际输出为 `error=quote_mismatch`、`claim_bound=false`、`L3_CONTAINED`。关键断点在实际 source slice 与 expected quote 比较，失败 claim 不进入报告。详见 [Lab 25B](../../../labs/core/lab-25B-research-agent-fault.md)。
 
-```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "every externally checkable claim needs a traceable evidence object", "invariant_holds": true, "observation": {"claims": [["MCP protocol revision", "s1"], ["A2A interoperability", "s2"], ["unverified benchmark gain", "missing"]], "missing_evidence": ["unverified benchmark gain"]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "research-agent", "system_detected": true}
-```
+验收要求是两条命令均退出 0；正常路径的 quote/span/digest 三者一致，故障路径不产生 `VerifiedClaim` 且 `effect` 不存在。`passed=true` 只说明该 claim-binding oracle 命中。
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L3_CONTAINED**：被测组件检测并 fail-closed/约束了故障，但不声明已恢复业务结果。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 25B](../../../labs/core/lab-25B-research-agent-fault.md)。
-
-### 观察与证据
-
+**实验语义边界。** 实验真实读文件并计算 hash，但没有联网检索，也没有证明 entailment 或来源质量。外部研究任务必须保存搜索/页面/PDF 证据，并遵守访问和版权限制。
 
 ## 工程场景与系统设计
 
-本章沿用第 20 章工程 Agent 负载，重点将 20 分钟预算分给检索、证据核验和报告生成，并禁止把未核验网页内容升级为事实。
+要回答“某协议截至 2026-09-11 的稳定能力”，Agent 应先固定 cutoff，查官方规范/release/source，区分 stable、draft 和 proposal；每个能力 claim 指向确切章节/commit。若官方来源互相矛盾，则报告版本/时间差异，不能拼成一个不存在的统一状态。
 
-
-### 上线前必须补齐
-
-- 围绕 **Research Agent** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `研究 Agent 必须维护 evidence ledger、citation 与 claim verification。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+可用[附录 A](../appendix-a-environment.md)的本地模型做 claim segmentation 和摘要，用 OpenAI 模型做候选检索/综合；但 source acquisition、hash、span、cutoff 与最终 citation verifier 均在模型之外。API key 不得进入 source artifact 或共享报告。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **URL 有效但不支持 claim**：做 claim-span entailment 复核；
+- **来源更新导致 quote 漂移**：比较 content digest，保留旧版本或标记不可重现；
+- **事件日期与发布日期混淆**：分别记录 occurred/published/updated/retrieved；
+- **同名实体串线**：用 canonical entity ID、组织/版本上下文消歧；
+- **二手来源覆盖官方规范**：按来源类型和问题类型设优先级；
+- **只搜索支持观点的证据**：显式执行反例/冲突搜索并保存负面结果。
 
-- **引用堆在文末不支撑 claim**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **过时资料当最新**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **跨来源冲突被忽略**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错以 claim 为单位，而不是重读整篇报告：定位 evidence edge，检查 source version、span、语义和推断步骤。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+指标包括 source retrieval success、primary-source ratio、claim coverage、citation precision、entailment error、staleness、conflict resolution、unsupported-claim rate、cost/claim 和 audit time。长报告的平均覆盖率会掩盖关键 claim，应按风险加权。
 
-- `task success rate`
-- `verifier pass rate`
-- `tool steps/task`
-- `workspace/sandbox violations`
-- `artifact correctness`
-- `wall-clock/cost per task`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Claim extraction` 的生命周期时，要重新验证 **every externally checkable claim needs a traceable evidence object**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “引用堆在文末不支撑 claim”、“过时资料当最新”、“跨来源冲突被忽略”：只有正常路径与对应 fault path 都保持 **every externally checkable claim needs a traceable evidence object**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+搜索缓存键应包含 query、locale、time cutoff 和 provider；页面缓存包含 URI、retrieved-at、ETag/last-modified（若有）及 content digest。缓存过期策略取决于来源变动速度，不能统一设置。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- coding/browser/data/research agent 的 verifier 都依赖真实环境可观测性
-- 远程 workspace 和 browser 状态可能漂移，不能只依赖模型记忆
-- 自动修改代码或数据必须区分只读、可逆和不可逆动作
-- benchmark 成功不能直接外推到组织私有环境
+保存 source snapshot 会提高复现性，但受版权、隐私和访问许可约束；项目应保存最小必要证据并记录许可。对高风险领域，Research Agent 只能辅助证据整理，不能取代领域专家、法律/医学审查。
 
-选择方案时要回到本章边界：如果业务不能接受“引用堆在文末不支撑 claim”，就必须为 `Source ranking` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Claim extraction` 决策交给模型，但要用 `未知结论不强答` 保持结果可验证。**OpenAI PaperBench** 与 **Anthropic: Demystifying evals for AI agents** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Research Agent 的高质量标准不是生成更长报告，而是 claim 与可核验 evidence 建立可追踪关系。来源无法访问、时间不匹配或证据冲突时应显式降级结论置信度，而不是补写看似完整的叙述。
+引用数量不是质量指标。少量直接支持核心 claim 的权威证据，通常优于大量相互转述的二手链接；同时也要防止“官方单一来源”掩盖现实争议。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+前沿方向包括 claim-level retrieval、长文档结构化定位、多模态表格/图证据、时间感知知识、citation entailment evaluator、自动冲突图、research trajectory benchmark，以及可验证但保护来源版权的 provenance。
 
-- **[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)**：提出 reasoning/action 交错轨迹，连接语言推理与外部环境动作。
-- **[OpenAI PaperBench](https://openai.com/index/paperbench/)**（2025 benchmark）：论文复现任务与细粒度 rubric/grader。
-- **[Anthropic: Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)**（2026-01-09）：Agent eval 需要 task/environment/trajectory/grader 共同设计。
+### 深度审计与研究证据链
 
-
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI BrowseComp（2025‑04‑10; observed 2026-09-11）：browsing agents and hard‑to‑find information retrieval。
-- OpenAI: How AI is expanding what people do at work（2026‑07‑27）：task crossover across occupations and changing job boundaries。
-- SciAgentArena（arXiv 2606.12736; 2026‑06‑10）：~200 interactive scientific research tasks and stepwise verification。
-
-**本章吸收的变化。** Research Agent 应构造 claim‑evidence 二部图。检索量不是质量；关键是每个重要 claim 的来源、范围、日期、矛盾与引用蕴含关系。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Source ranking`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **every externally checkable claim needs a traceable evidence object** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“引用堆在文末不支撑 claim”和“过时资料当最新”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Research Agent** 的可验证性。PaperBench、Deep Research Bench、BrowseComp/Plus 都表明研究任务需要可评分子任务、固定语料或引用链。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Source ranking` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“引用堆在文末不支撑 claim”与“过时资料当最新”同时发生时，**OpenAI PaperBench** 与 **Anthropic: Demystifying evals for AI agents** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Claim extraction` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“跨来源冲突被忽略”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Research Agent
-
-本章重新审计后的核心结论是：**研究 Agent 必须维护 evidence ledger、citation 与 claim verification。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[SWE-bench](https://github.com/swe-bench/SWE-bench)**：真实 GitHub issue + repo snapshot + test verifier，是 coding agent 评估基础。
-- **[AIDev](https://arxiv.org/abs/2602.09185)**：以大规模 agent-authored PR 数据展示 coding agent 的真实软件工程影响。
-- **[OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk)**：提供 Conversation/Workspace/Event/Agent Server 公开边界。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI Deep Research/PaperBench、LangGraph research agents、ai-agent-book research labs 可对照。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Research Agent 的 workspace、verifier、artifact 或协作状态；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+截至 2026-09-11，本章只把可访问的公开来源作为研究输入，并用本地文件实验验证 digest/span 机制。任何“全面”“最新”或“优于”主张都需要公开检索范围、遗漏风险和 evaluator；不能由流畅文风代替。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Research Agent 的质量上限由 claim—evidence 对齐、时间版本和冲突治理决定。允许输出 UNKNOWN，是保持证据完整性的能力而不是失败。
 
-1. 本章不变量是：**every externally checkable claim needs a traceable evidence object**；
-2. `Source ranking` 必须是可观察软件边界，而不是 prompt 约定；
-3. `离线语料保证确定性` 与 `未知结论不强答` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 J](../appendix-j-part4-solutions.html#ch25)）：
 
-### 常见误区
-
-- 引用堆在文末不支撑 claim
-- 过时资料当最新
-- 跨来源冲突被忽略
-
-### 思考题与实践
-
-- **Why：** 为什么 `Source ranking` 不能只靠模型“记住”？
-- **What if：** 如果在 `离线语料保证确定性` 与 `未知结论不强答` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch25_research_agent.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **Graph Runtime：LangGraph / ADK / MAF 的共同抽象**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. URL、quote 和 entailment 为什么是三个不同验证层级？
+2. claim coverage 为 100% 为什么仍可能错误？
+3. 如何处理网页更新导致的 citation drift？
+4. 研究截止日期应进入哪些数据结构？
+5. 怎样评测 Research Agent 而不只评价报告文风？

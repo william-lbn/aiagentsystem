@@ -1,16 +1,17 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Run state",fillcolor="#edf5ff"];
-n2 [label="Checkpoint",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Session tree",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.32",ranksep="0.42"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+events [label="Ordered State Events\nsequence · from · to · reason",fillcolor="#fff4e6"];
+reducer [label="Versioned Reducer\n合法转移 + 终态单调",fillcolor="#edf5ff"];
+state [label="Derived Run State\nphase · pending · digest",fillcolor="#eef9f1"];
+checkpoint [label="Checkpoint Store\nversion + atomic write + CAS",fillcolor="#f6efff"];
+workers [label="Worker A / Worker B\nlease + expected_version",fillcolor="#edf5ff"];
+journal [label="Effect Journal\nIntent · Receipt · UNKNOWN",fillcolor="#fdecea"];
+events->reducer;
+reducer->state;
+state->checkpoint [label="snapshot"];
+workers->checkpoint [label="load / compare-and-swap"];
+state->journal [label="effect boundary"];
+journal->events [label="observation",style=dashed];
 }

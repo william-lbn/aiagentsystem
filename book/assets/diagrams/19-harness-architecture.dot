@@ -1,16 +1,18 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Plugin context",fillcolor="#edf5ff"];
-n2 [label="Service dependency",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Lifecycle/Fiber",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.32",ranksep="0.45"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+interaction [label="CLI / UI / API",fillcolor="#fff4e6"];
+kernel [label="Harness Kernel\nLifecycle · Policy · State · Evidence",fillcolor="#fdecea"];
+model [label="Model Adapter",fillcolor="#edf5ff"];
+context [label="Context / Memory Adapter",fillcolor="#edf5ff"];
+tools [label="Tool / Workspace Adapter",fillcolor="#eef9f1"];
+durable [label="Checkpoint / Journal",fillcolor="#f6efff"];
+verify [label="Trace / Eval / Verifier",fillcolor="#f6efff"];
+interaction->kernel;
+kernel->model [label="port"];
+kernel->context [label="port"];
+kernel->tools [label="capability port"];
+kernel->durable [label="state transition"];
+kernel->verify [label="artifact / trace"];
 }

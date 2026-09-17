@@ -1,17 +1,12 @@
-# Lab 03A — Context Engineering：信息进入模型之前已经决定了一半结果｜正常路径
+# Lab 03A — 受信任、租户与预算约束的 Context Assembly｜正常路径
 
 ## 实验目标
 
-验证不变量：**context compaction must preserve higher-priority instructions and task state**
+验证组装器在 90-token 教学预算内强制保留 policy/task，按效用选择当前 trace/runbook，并以明确原因丢弃低价值旧历史。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 或 API key。固定 token cost 用于跨主机确定性实验，不等同于任一 provider tokenizer。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与输入
 
-入口：`examples/chapters/ch03_context.py`；核心机制：`src/agentlab/course_scenarios.py::context`。
+入口 `examples/chapters/ch03_context.py`，SUT 为 `foundation_system.py::ContextAssembler`。候选记录包括 `policy(18, mandatory)`、`task(16, mandatory)`、`trace(24)`、`runbook(28)` 和 `old-chat(30)`，每条携带 channel/source/tenant/freshness/authority。
 
-本实验输入由 `context` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::context`
-- `examples/chapters/ch03_context.py::main`
-
-## 实验 A：正常路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch03_context.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "context compaction must preserve higher-priority instructions and task state", "invariant_holds": true, "observation": {"budget": 3, "dropped": ["history"], "kept": ["system", "task", "evidence"]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "context", "system_detected": false}
+{"budget": 90, "excluded": {"old-chat": "token_budget"}, "selected": ["policy", "task", "trace", "runbook"], "used_tokens": 86}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+在 tenant/trust 预过滤、mandatory cost、utility/token 排序和 optional admission 处检查候选；在 manifest 生成处确认 excluded reason 未丢失。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+mandatory 全部存在，used tokens 不超过 90，选择顺序稳定，`old-chat` 因预算排除，`invariant_holds=true/L1_MECHANISM`。
+
+## 证据解释与上限
+
+本实验证明组装控制流，不证明选择结果是全局最优，也不证明模型一定使用了 trace/runbook。固定成本不应被报告为 OpenAI token 数。
+
+## 进阶实验
+
+把 mandatory 总成本设为 91，要求组装器整体失败而不是丢 policy；再设计一个可以证明优于贪心的反例，比较 ILP 与启发式但保留相同安全 gate。

@@ -1,352 +1,204 @@
 # Hybrid / Agentic RAG：让检索成为决策过程
 
-> **本章核心判断**：Agentic RAG 让模型决定是否检索、如何改写 query、何时停止；同时也放大了成本、漂移和引用风险。
+> **本章命题**：Hybrid RAG 不是把 BM25 与向量分数相加；它是一个受治理的检索计划：选择检索器、隔离各自故障、保留 provenance、融合候选、判定证据是否充分，并在预算内继续、改写或停止。
 
-上一章：RAG 基础：检索、证据与生成边界。本章把前一章已经建立的能力进一步推进到 `Sparse vs dense`；下一章将进入：长期记忆：从聊天历史到可治理的用户状态。
+上一章建立了单检索器的证据边界。本章讨论检索器组合和 Agentic control，同时严格区分“本地第二检索算法”与“真实 embedding 模型”。
 
-![Hybrid / Agentic RAG：让检索成为决策过程：系统边界与组件关系](../../assets/diagrams/10-hybrid-rag-architecture.svg)
+![Hybrid RAG 的路由、隔离、融合与证据验证](../../assets/diagrams/10-hybrid-rag-architecture.svg)
 
 ## 问题背景与学习目标
 
-Agentic RAG 让模型决定是否检索、如何改写 query、何时停止；同时也放大了成本、漂移和引用风险。
+Lexical retrieval 擅长精确 ID、错误码与专有名词；dense retrieval 擅长语义改写；SQL/graph 擅长结构化约束。混合系统希望互补，却会引入新故障：不同 score 不可比、adapter 返回越权 ID、重复候选被多算、reranker 抹掉来源、循环检索耗尽预算。
 
-在本章的 `Sparse vs dense` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+读完本章，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Agentic RAG 让模型决定是否检索、如何改写 query、何时停止；同时也放大了成本、漂移和引用风险。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `hybrid retrieval must retain per-retriever provenance before fusion` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 10A` / `Lab 10B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 把 retriever 当成有合同、有 authorized universe 的 adapter；
+- 用 rank fusion 而非未经校准的原始 score 相加；
+- 区分 query routing、query rewriting、multi-hop decomposition 和 evidence verification；
+- 设计最大轮数、最大候选、token/latency/cost budget 与停止条件；
+- 分别报告 retriever、fusion、reranker、generator 的消融结果。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+### Hybrid 是证据组合，不是分数拼盘
 
-### Sparse vs dense
+BM25、cosine、数据库概率和图路径成本的量纲不同。未经校准直接加权，会让某一路分数范围支配结果。Reciprocal Rank Fusion（RRF）只依赖名次，提供稳健基线；学习融合可更强，但需要代表性标注和漂移监控。
 
-**定义。** Sparse retrieval 利用词项匹配，擅长专有名词、ID 和精确术语；dense retrieval 利用语义表示，擅长同义表达和概念相似。
+### Retriever Adapter 是安全边界
 
-**系统责任。** Hybrid RAG 通常先用 metadata/ACL 限定候选，再组合 sparse+dense score，并通过 reranker 重排。
+每个 adapter 返回 doc ID、rank、score、retriever/version 与 provenance。融合器只接受 authorized corpus 中的 ID；未知、跨租户或重复 ID 被拒绝并计入 error budget。不能因为“dense service 已经过滤”就跳过本地验证。
 
-**失败边界。** 只用 dense 容易错过精确代码/编号；只用 sparse 对自然语言改写不敏感。选择应由数据类型和错误成本决定。
+### Agentic Retrieval 是有限状态控制
 
-### Rerank
+模型可提出：检索、改写、拆问题、请求结构化查询或停止。但循环必须有 deterministic budget，证据充分性由可检查条件决定。Agent 不应通过不断换措辞掩盖 corpus 缺失。
 
-**定义。** Rerank 用更昂贵的模型或规则对初召回候选重新评分，目标是提高前几个 context slot 的证据密度。
+### Reranker 不拥有事实
 
-**系统责任。** 它可以考虑 query–passage 相关性、source quality、freshness、diversity 和权限，而不只是向量相似度。
-
-**失败边界。** Reranker 不能补救根本没召回的证据；同时它自身也可能偏好流畅文本而不是权威来源。
-
-### Query rewrite
-
-**定义。** Query rewrite 根据任务状态把用户问题拆成更适合检索的子查询、实体约束或时间范围。
-
-**系统责任。** Agentic RAG 中 rewrite 可以多轮发生：检索结果暴露新实体后，再生成下一轮 targeted query。
-
-**失败边界。** 无限 rewrite 会变成搜索发散。应设 evidence coverage/novelty 阈值和最大轮数。
-
-### Stop criteria
-
-**定义。** Stop criteria 决定何时已经有足够证据回答、何时需要继续查找、何时应该承认信息不足。
-
-**系统责任。** 可使用 claim coverage、source diversity、contradiction unresolved、budget 和 verifier confidence 组合判定。
-
-**失败边界。** 如果停止条件只是“模型觉得够了”，容易在第一个看似合理来源处过早收敛。
+Cross-encoder/LLM reranker 只调整候选顺序，不提升文档 authority，也不应移除原始 retriever provenance。最终 claim 仍需指向 source span。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：hybrid retrieval must retain per-retriever provenance before fusion
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `循环检索烧掉预算` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “循环检索烧掉预算”、“query rewrite 丢失约束”、“reranker 黑盒不可复盘” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Sparse vs dense** 与 **Rerank** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“循环检索烧掉预算”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Sparse vs dense 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Rerank 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `将检索计划写入 trace`、`无证据时拒答` 以及对不变量 **hybrid retrieval must retain per-retriever provenance before fusion** 的检查。
-
-**What if。** 一旦“query rewrite 丢失约束”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+RRF 对文档 $d$ 的分数为：
 
 $$
-S_{hybrid}=\alpha S_{dense}+\beta S_{sparse}+\gamma S_{rerank},\qquad stop\ if\ \Delta Evidence<\lambda Cost
+RRF(d)=\sum_{r\in R}\frac{1}{k+rank_r(d)}
 $$
 
-Agentic RAG 把检索从一次查询变成有成本的序列决策；系统需要明确“何时继续搜、何时停”。
+$k$ 控制头部名次的敏感度。未被某检索器召回的文档不贡献分数。RRF 的优点是无需让 BM25 与 cosine 共享量纲；局限是忽略 score margin 和 retriever reliability。
 
-**可证伪假设。** 加入 evidence-gain stop criterion 可减少无效检索回合，同时保持 verified answer quality。
+Agentic RAG 可写成预算受限策略：
 
-**建议测量。** retrieval turns、marginal evidence gain、cost per verified answer、citation coverage。
+$$
+\pi(a_t\mid q,E_t,B_t),\quad
+a_t\in\{retrieve_r,rewrite,decompose,verify,stop,abstain\}
+$$
+
+其中 Evidence Set $E_t$ 必须保留来源，Budget $B_t$ 单调递减。终止条件不是模型说“够了”，而是 coverage/contradiction/authority gate 达标或预算耗尽。
+
+**不变量**：fusion must preserve retriever provenance and reject IDs outside the authorized corpus。
 
 ## 关键机制与执行流程
 
-![Hybrid / Agentic RAG：让检索成为决策过程：正常路径与故障恢复流程](../../assets/diagrams/10-hybrid-rag-flow.svg)
+![混合检索器独立运行、合同校验并以 RRF 融合](../../assets/diagrams/10-hybrid-rag-flow.svg)
 
-**Step 1 — 将检索计划写入 trace。** 这一阶段可能改变系统或外部环境，因此 `将检索计划写入 trace` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **hybrid retrieval must retain per-retriever provenance before fusion**。
-
-**Step 2 — 每次改写保存 rationale。** 这一阶段可能改变系统或外部环境，因此 `每次改写保存 rationale` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **hybrid retrieval must retain per-retriever provenance before fusion**。
-
-**Step 3 — rerank 保留候选列表。** `rerank 保留候选列表` 是“Hybrid / Agentic RAG：让检索成为决策过程”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Query rewrite` 是否仍满足 **hybrid retrieval must retain per-retriever provenance before fusion**。
-
-**Step 4 — 无证据时拒答。** `无证据时拒答` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-在本章的 `Sparse vs dense` 场景中，**最后一步 — 验证。** verifier 针对 `Stop criteria` 检查本章不变量 **hybrid retrieval must retain per-retriever provenance before fusion**。如果“循环检索烧掉预算”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **将检索计划写入 trace → 每次改写保存 rationale → rerank 保留候选列表 → 无证据时拒答** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“循环检索烧掉预算”尤其要检查动作前后的证据是否足以闭合不变量 **hybrid retrieval must retain per-retriever provenance before fusion**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Sparse vs dense` 有关的纯计算状态通常可以重算；一旦 `每次改写保存 rationale` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **hybrid retrieval must retain per-retriever provenance before fusion**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+1. Policy 根据 query type 和成本选择 lexical、dense、SQL 或 graph 路径；
+2. 各 adapter 在相同 subject scope 下独立执行，使用 deadline 与 bulkhead；
+3. Validator 检查 ID universe、tenant、重复项、版本和返回上限；
+4. Fusion 计算 RRF，并建立 `doc_id → retrievers` provenance；
+5. 可选 reranker 只处理已授权候选；
+6. Evidence gate 检查覆盖、权威、时效、冲突和引用 span；
+7. 不充分时可改写/分解，直到 step/cost budget 到顶；之后 abstain；
+8. Answer verifier 比较 claim 与实际 Evidence Set。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Hybrid / Agentic RAG：让检索成为决策过程')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('hybrid-rag', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+为了让离线 lab 不伪装成 neural embedding，本书明确使用第二种真实但非神经的算法：字符三元组 cosine。类名和 docstring 都声明其身份：
 
 ```python
-def hybrid_rag(fault=False):
- sparse=['d1','d3','d2']; dense=['d2','d1','d3'] if not fault else ['x1','x2','x3']
- fused=_rrf([sparse,dense]); ids=[x[0] for x in fused[:3]]
- condition=('d1' in ids and 'd2' in ids) if not fault else any(x.startswith('x') for x in ids)
- return _ok('hybrid-rag',fault,{'sparse':sparse,'dense':dense,'rrf':fused[:4]},'hybrid retrieval must retain per-retriever provenance before fusion',condition)
+class CharacterNgramIndex:
+    """A deterministic second retriever, explicitly not a neural embedding model."""
+
+    def rank(self, query: str, *, tenant_id: str) -> list[str]:
+        query_vector = character_ngrams(query)
+        scored = [
+            (doc.doc_id, cosine(query_vector, self.vectors[doc.doc_id]))
+            for doc in self.documents
+            if doc.tenant_id == tenant_id
+        ]
+        return [doc_id for doc_id, score in sorted(scored, key=...) if score > 0]
 ```
 
+融合器把 adapter 视为不可信输入：
 
-### 简化假设与不能省略的机制
+```python
+for retriever, ranking in rankings.items():
+    seen = set()
+    for rank, doc_id in enumerate(ranking, 1):
+        if doc_id in seen:
+            rejected[f"{retriever}:{rank}:{doc_id}"] = "duplicate_in_ranking"
+            continue
+        if doc_id not in allowed_ids:
+            rejected[f"{retriever}:{rank}:{doc_id}"] = "unknown_or_forbidden_document"
+            continue
+        scores[doc_id] += 1.0 / (k + rank)
+        provenance[doc_id].append(retriever)
+```
 
+这个边界允许故障注入一个高排名 `foreign-secret`，并验证它没有进入融合结果。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| bojieli/ai-agent-book | `main; 10 chapters / 109 experiments observed 2026-09-09` | 对标开源教材：正文、实验 ledger、PDF/EPUB、多语言。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/bojieli/ai-agent-book) |
-| Letta | `source observed 2026-09-09` | stateful agents / long-term memory 参考。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/letta-ai/letta) |
-| Mem0 | `source observed 2026-09-09` | 记忆抽取、检索与评估参考。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/mem0ai/mem0) |
+| 路线 | 机制 | 审计重点 |
+|---|---|---|
+| [RAG](https://arxiv.org/abs/2005.11401) | 参数/非参数记忆联合生成 | 研究任务与生产权限/时态边界不同 |
+| [DPR](https://arxiv.org/abs/2004.04906) | dense bi-encoder retrieval | negative sampling、domain shift、index/model version |
+| [RRF](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf) | 基于名次的稳健融合 | authorized universe、重复 ID、k 与 candidate depth |
+| Agentic/Graph RAG 实现 | query routing、decomposition、迭代检索 | 循环预算、状态持久化、模型共偏差 |
 
-### 源码阅读方法
-
-源码阅读以 **bojieli/ai-agent-book** 为第一参照，并只追与“Hybrid / Agentic RAG：让检索成为决策过程”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“循环检索烧掉预算”、如何在“query rewrite 丢失约束”后恢复，以及如何让 `无证据时拒答` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+托管 vector/file-search 服务可降低基础设施负担，但应用仍要保留 corpus/version、subject scope、query、returned IDs、citations 和 usage。若 API 不暴露某层分数，不应伪造或推测。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
-|---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| bojieli/ai-agent-book | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Letta | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Mem0 | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 方案 | 需要的标注 | 优势 | 主要风险 |
+|---|---:|---|---|
+| RRF | 无 | 简单稳健、分数无关 | 忽略 margin/可靠性 |
+| 归一化加权分数 | 少量校准 | 可表达 retriever 权重 | 分布漂移后失真 |
+| 学习排序 | 大量 query-doc labels | 可优化业务指标 | 过拟合、解释与治理成本 |
+| LLM rerank | 可零样本 | 语义/指令理解强 | 成本、注入、共偏差 |
 
+RRF 应作为强基线。只有在 held-out eval 明确提升且安全 slice 不退化时，才引入更复杂融合。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Hybrid / Agentic RAG：让检索成为决策过程”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
 ### 实验环境
 
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Hybrid / Agentic RAG：让检索成为决策过程”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
+Python 3.11–3.13；无网络/模型/API key。两路检索均真实执行：BM25 与字符 n-gram cosine；后者是 lexical-shape baseline，不称为 embedding。核心代码在 `knowledge_system.py`，入口为 `ch10_hybrid_rag.py`。
 
-### Lab 10A — 正常路径
-
-```bash
-PYTHONPATH=src python examples/chapters/ch10_hybrid_rag.py
-```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::hybrid_rag`
-- `examples/chapters/ch10_hybrid_rag.py::main`
-
-**本发布包实际输出：**
-
-```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "hybrid retrieval must retain per-retriever provenance before fusion", "invariant_holds": true, "observation": {"dense": ["d2", "d1", "d3"], "rrf": [["d1", 0.03252247488101534], ["d2", 0.032266458495966696], ["d3", 0.03200204813108039]], "sparse": ["d1", "d3", "d2"]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "hybrid-rag", "system_detected": false}
-```
-
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 10A](../../../labs/core/lab-10A-hybrid-rag.md)。
-
-### Lab 10B — 故障注入
+### Lab 10A：双检索器 RRF
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch10_hybrid_rag.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch10_hybrid_rag.py
 ```
 
-**本发布包实际输出：**
+实际结果：BM25 仅召回 `runbook`；char-ngram 顺序为 `runbook, approval, retrieval`；融合 top-1 为 `runbook`，其 provenance 同时包含两路检索器，等级 `L1_MECHANISM`。
 
-```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "hybrid retrieval must retain per-retriever provenance before fusion", "invariant_holds": false, "observation": {"dense": ["x1", "x2", "x3"], "rrf": [["d1", 0.01639344262295082], ["x1", 0.01639344262295082], ["d3", 0.016129032258064516], ["x2", 0.016129032258064516]], "sparse": ["d1", "d3", "d2"]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "hybrid-rag", "system_detected": false}
+### Lab 10B：损坏 adapter 注入未知 ID
+
+```bash
+PYTHONPATH=src uv run python examples/chapters/ch10_hybrid_rag.py --fault
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 10B](../../../labs/core/lab-10B-hybrid-rag-fault.md)。
+第二路把 `foreign-secret` 放在 rank 1。融合器实际返回 `char_ngram:1:foreign-secret → unknown_or_forbidden_document`，最终 ranking 不含该 ID，证据等级 `L3_CONTAINED`。详见 [Lab 10A](../../../labs/core/lab-10A-hybrid-rag.md) 与 [Lab 10B](../../../labs/core/lab-10B-hybrid-rag-fault.md)。
 
-### 观察与证据
+### 关键断点与验收标准
 
+**关键断点**：保留每路原始 ranking、authorized document universe、RRF accumulator 和 provenance map，不允许 adapter 的未知 ID 进入融合。**验收标准**：正常实际输出的 top-1 必须由两路共同支持；故障输出必须将 `foreign-secret` 列入 rejected、不给予分数或 provenance，且合法排名稳定。
 
 ## 工程场景与系统设计
 
-本章复用第 7 章“客户支持 Agent”教学负载，重点研究 sparse/dense/agentic 路由在 8 个证据块上如何形成可评测融合，而不是重复宣称同一吞吐指标。
+面向生产支持 Agent，可先用 query classifier 判断：ticket/error code 走 BM25，用户自然语言走 dense，两者不确定时并行；涉及账户状态则必须追加结构化查询。每路有独立 deadline，迟到结果不阻塞全部请求；但融合 manifest 要记录哪些 retriever 超时，避免把降级结果误称为完整检索。
 
-
-### 上线前必须补齐
-
-- 围绕 **Hybrid 与 Agentic RAG** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `融合前必须保留各检索器来源，Agentic RAG 必须把检索决策纳入轨迹。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+多跳问题应显式维护 subquery 与已用证据，防止模型重复检索同一内容。停止条件可以是：每个必要 claim 至少一个高 authority span、无未解决冲突、候选增益低于阈值，或预算用尽。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
-
-- **循环检索烧掉预算**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **query rewrite 丢失约束**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **reranker 黑盒不可复盘**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+- **未知 ID**：adapter/索引版本不一致或越权，融合前拒绝；
+- **重复 ID**：同一路重复不应多次加分；
+- **迟到 retriever**：记录 timeout 与降级模式，不伪装成全量结果；
+- **query drift**：多轮改写偏离原任务，比较每轮 query 与 constraint manifest；
+- **reranker 注入**：候选正文是 data，不能改变 system policy；
+- **循环无增益**：跟踪 unique evidence gain，达到阈值后停止。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+分解 latency：route、每路 retrieval、validation、fusion、rerank、evidence gate。质量按 retriever ablation 报告，并给出 oracle labels、样本数、置信区间。成本不仅是 token，还包括索引查询、GPU rerank、外部 API 与重复检索。
 
-- `tool/retrieval p50,p95 latency`
-- `tool error/UNKNOWN rate`
-- `recall@k / evidence coverage`
-- `memory hit/conflict rate`
-- `payload bytes / turn`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Rerank` 的生命周期时，要重新验证 **hybrid retrieval must retain per-retriever provenance before fusion**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “循环检索烧掉预算”、“query rewrite 丢失约束”、“reranker 黑盒不可复盘”：只有正常路径与对应 fault path 都保持 **hybrid retrieval must retain per-retriever provenance before fusion**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+并行能降低尾延迟，但会提高资源峰值；可用 hedging、early-exit 和 query-dependent routing。所有 cache key 都需包含 authorized scope 与 index/model version。融合结果需要 deterministic tie-break，确保 replay 和跨主机证据一致。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 检索只能返回可索引/可访问的数据，不自动保证事实完整性
-- 工具 schema 无法消除外部系统自身的不一致
-- 长期记忆会过期、冲突或包含敏感信息，必须治理
-- 协议标准化互操作，不替代业务授权与审计
+本章第二检索器不是语义 embedding，故不能宣称验证了 neural hybrid RAG；这是刻意的证据诚实。读者若接入本地小 embedding 模型，可选冻结 revision 的轻量多语模型，并记录权重哈希、量化和 pooling；若使用 OpenAI embeddings/file search，同样只从环境读取 key 并保存脱敏 provider evidence。
 
-选择方案时要回到本章边界：如果业务不能接受“循环检索烧掉预算”，就必须为 `Sparse vs dense` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Rerank` 决策交给模型，但要用 `无证据时拒答` 保持结果可验证。**bojieli/ai-agent-book** 与 **Letta** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Agentic RAG 让模型决定何时检索和如何融合，也同时引入 query drift、恶意文档与级联污染。除检索质量外，还需要来源策略、冲突检测和独立评测；“检索到了”不等于“应当相信”。
+真实模型实验至少比较 BM25-only、dense-only、RRF、reranker 四组，并对正常查询、无解查询、跨租户攻击、过期文档和多语言分别报告。没有这些 slice，平均 Recall 提升不足以上线。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+下一代 RAG 趋向 retrieval planning：模型决定访问哪类索引、是否继续、如何验证，同时系统以形式化预算和治理门限制约策略。多模态、时态、代码与数据库检索将共存，关键不再是单一 embedding，而是跨证据类型的身份、冲突与 completion semantics。
 
-- **[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)**：提出 reasoning/action 交错轨迹，连接语言推理与外部环境动作。
-- **[Language Agent Tree Search](https://proceedings.mlr.press/v235/zhou24r.html)**：ICML 2024；把 tree search、环境反馈、反思和值函数组合到 Agent 决策。
-- **[bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book)**（main; 10 chapters / 109 experiments observed 2026-09-09）：对标开源教材：正文、实验 ledger、PDF/EPUB、多语言。
-- **[Letta](https://github.com/letta-ai/letta)**（source observed 2026-09-09）：stateful agents / long-term memory 参考。
+### 深度审计与研究证据链：算法互补不能跨越治理边界
 
-
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI BrowseComp（2025‑04‑10; observed 2026-09-11）：browsing agents and hard‑to‑find information retrieval。
-- OpenAI: How AI is expanding what people do at work（2026‑07‑27）：task crossover across occupations and changing job boundaries。
-
-**本章吸收的变化。** Agentic RAG 的关键是决定何时改写查询、换索引、继续搜索或停止；检索成为受预算约束的决策过程。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Sparse vs dense`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **hybrid retrieval must retain per-retriever provenance before fusion** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“循环检索烧掉预算”和“query rewrite 丢失约束”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Hybrid 与 Agentic RAG** 的可验证性。RRF、GraphRAG 与 agentic retrieval 研究共同说明：检索不是单一步骤，而是带反馈的决策过程。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Sparse vs dense` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“循环检索烧掉预算”与“query rewrite 丢失约束”同时发生时，**bojieli/ai-agent-book** 与 **Letta** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Rerank` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“reranker 黑盒不可复盘”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Hybrid 与 Agentic RAG
-
-本章重新审计后的核心结论是：**融合前必须保留各检索器来源，Agentic RAG 必须把检索决策纳入轨迹。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[Memora](https://arxiv.org/abs/2604.20006)**：强调长期记忆不仅要 recall，也要遗忘过期事实。
-- **[Mem2ActBench](https://arxiv.org/abs/2601.19935)**：把记忆是否能主动用于工具参数 grounding 作为评测目标。
-- **[LongMemEval-V2](https://arxiv.org/abs/2605.12493)**：把 web-agent 经验轨迹转成长期记忆评测，暴露 latency/quality 取舍。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。LangGraph RAG flow、LlamaIndex query engine 与 ai-agent-book agentic RAG 可对照固定 pipeline 与动态检索。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Hybrid 与 Agentic RAG 的 schema、证据或记忆边界；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+RRF 提供无需分数校准的组合基础；Agentic RAG 增加策略自适应；本章的授权 ID universe 和 adapter rejection 属于系统安全层。任何检索算法的论文分数都不能证明跨租户隔离，离线故障包含也不能证明真实 embedding 质量。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Hybrid RAG 的价值来自多路证据互补；其可靠性来自 adapter 合同、provenance、budget 和 evidence gate。把两个列表相加只是开始，不是系统完成。
 
-1. 本章不变量是：**hybrid retrieval must retain per-retriever provenance before fusion**；
-2. `Sparse vs dense` 必须是可观察软件边界，而不是 prompt 约定；
-3. `将检索计划写入 trace` 与 `无证据时拒答` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题：
 
-### 常见误区
+1. 为什么 BM25 与 cosine 原始分数不宜直接相加？
+2. 融合器为什么还要验证 doc ID，而不能信任 adapter？
+3. 怎样定义多轮检索的 evidence gain？
+4. reranker 应保留哪些上游 provenance？
+5. 如何设计 dense-only 与 hybrid 的安全消融？
 
-- 循环检索烧掉预算
-- query rewrite 丢失约束
-- reranker 黑盒不可复盘
-
-### 思考题与实践
-
-- **Why：** 为什么 `Sparse vs dense` 不能只靠模型“记住”？
-- **What if：** 如果在 `将检索计划写入 trace` 与 `无证据时拒答` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch10_hybrid_rag.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **长期记忆：从聊天历史到可治理的用户状态**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+参考答案见[附录 H：第二篇问题参考答案](../appendix-h-part2-solutions.html#part2-solutions-ch10)。

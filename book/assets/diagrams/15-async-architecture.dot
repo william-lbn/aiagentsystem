@@ -1,16 +1,19 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Streaming",fillcolor="#edf5ff"];
-n2 [label="Cancellation",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Parallel tools",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=TB,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.48"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+parent [label="Run Supervisor\nDeadline · Cancellation · Task Table",fillcolor="#fdecea"];
+queue [label="Bounded Queue / Semaphore\nBackpressure",fillcolor="#edf5ff"];
+tasks [label="Child Tasks\nQUEUED → RUNNING → Terminal",fillcolor="#fff4e6"];
+remote [label="Tools / Remote Services\nEffect 状态独立",fillcolor="#eef9f1"];
+stream [label="Typed Event Stream\nSequence · Provenance",fillcolor="#f6efff"];
+reconcile [label="UNKNOWN Reconciliation",fillcolor="#fdecea"];
+parent->queue;
+queue->tasks;
+tasks->remote;
+tasks->stream;
+remote->stream;
+remote->reconcile [label="取消后仍可能提交"];
+stream->parent [label="完成证据"];
+reconcile->parent [label="权威结果"];
 }

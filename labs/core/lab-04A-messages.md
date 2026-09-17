@@ -1,17 +1,12 @@
-# Lab 04A — Messages、Structured Output 与 ReAct 轨迹｜正常路径
+# Lab 04A — 闭合的 Tool Call/Result 轨迹｜正常路径
 
 ## 实验目标
 
-验证不变量：**tool-call arguments are typed data, not trusted natural language**
+验证类型化 ledger 接受 `user → tool call → matching result → final`，并在最终响应前清空所有 pending calls；轨迹通过稳定 canonical JSON 产生 digest。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+Python `3.11–3.13`；macOS/Linux；`arm64/x86_64`；无网络、Docker 或 API key。只依赖标准库和仓库 `MessageLedger`。
 
 ## 环境准备
 
@@ -20,33 +15,34 @@ python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
-## 实验代码
+## 实验代码与输入
 
-入口：`examples/chapters/ch04_messages.py`；核心机制：`src/agentlab/course_scenarios.py::messages`。
+入口 `examples/chapters/ch04_messages.py`；SUT `foundation_system.py::MessageLedger`。调用 `call-7/read_ticket` 查询 `INC-2048`；返回同一 call ID/name 后才追加最终消息。
 
-本实验输入由 `messages` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::messages`
-- `examples/chapters/ch04_messages.py::main`
-
-## 实验 A：正常路径
+## 运行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch04_messages.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "tool-call arguments are typed data, not trusted natural language", "invariant_holds": true, "observation": {"call": {"arguments": {"id": 7}, "name": "lookup"}, "missing": []}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "messages", "system_detected": false}
+{"accepted": [true, true, true, true], "errors": [], "ledger_size": 4, "pending_calls": [], "trajectory_sha256": "7fa13744dfddaf47"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+在 `MessageLedger.append` 的 item ID、tool-call registration、tool-result match、final pending gate 与 digest serialization 处观察。结果到达前 pending 应为 `call-7`，匹配后应为空。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+四次 append 全部接受，ledger 恰为 4 项，pending 为空，digest 与同一环境重复运行一致，完整结果为 `L1_MECHANISM`。
+
+## 证据解释与上限
+
+实验验证单进程 canonical ledger，不证明多写者线性一致性、数字签名或 provider stream 的真实互操作。显示哈希为完整 SHA-256 的前 16 位。
+
+## 进阶实验
+
+创建两个并行 calls 并逆序返回结果；要求二者按 identity 正确闭合，再定义一个确定性的派生排序用于比较语义等价轨迹。

@@ -1,16 +1,19 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Loop",fillcolor="#edf5ff"];
-n2 [label="Stop condition",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Budget",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.18",nodesep="0.34",ranksep="0.5"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=14,color="#34495e",penwidth=1.2];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+context [label="Context Builder\n已确认状态与证据",fillcolor="#edf5ff"];
+model [label="Model Policy\n只提出候选决策",fillcolor="#fff4e6"];
+runtime [label="Governed Runtime\n状态机 · 预算 · Policy",fillcolor="#fdecea"];
+tools [label="Tool / Environment\nObservation · Effect",fillcolor="#eef9f1"];
+verifier [label="Independent Verifier\n后置条件与 Artifact",fillcolor="#f6efff"];
+evidence [label="Event / Checkpoint / Journal",fillcolor="#edf5ff"];
+context->model [label="typed context"];
+model->runtime [label="act / finish / input / fail"];
+runtime->tools [label="authorized action"];
+tools->runtime [label="observation / receipt"];
+runtime->verifier [label="finish proposal"];
+verifier->runtime [label="pass / fail"];
+runtime->evidence [label="state transition"];
+evidence->context [label="confirmed facts"];
 }

@@ -1,52 +1,37 @@
-# Lab 15A — Async Runtime：流式、并发、中断与取消｜正常路径
+# Lab 15A — 异步 Runtime：有界并发｜正常路径
 
 ## 实验目标
 
-验证不变量：**losing concurrent work must be cancelled or otherwise accounted for**
+运行三个真实 coroutine，验证 supervisor 把峰值并发限制为 2，并为每个任务记录终态和结果。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13，标准库 `asyncio`；
+- `AsyncSupervisor(concurrency=2)`；无网络/API key；
+- 证据上限 `L1_MECHANISM`。
 
 ## 环境准备
 
 ```bash
-python -m pip install uv==0.10.0
 uv sync --locked --all-groups --no-install-project
 ```
 
 ## 实验代码
 
-入口：`examples/chapters/ch15_async.py`；核心机制：`src/agentlab/course_scenarios.py::async_runtime`。
-
-本实验输入由 `async_runtime` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::async_runtime`
-- `examples/chapters/ch15_async.py::main`
-
-## 实验 A：正常路径
-
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch15_async.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际输出
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "losing concurrent work must be cancelled or otherwise accounted for", "invariant_holds": true, "observation": {"pending_cancelled": [true], "winner": "fast"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "async", "system_detected": false}
+{"evidence_level":"L1_MECHANISM","fault":false,"observation":{"concurrency_limit":2,"max_active":2,"results":{"documents":"documents","metrics":"metrics","policy":"policy"},"states":{"documents":"SUCCEEDED","metrics":"SUCCEEDED","policy":"SUCCEEDED"},"winner":null},"passed":true,"scenario":"async"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+在 semaphore 进入前、`states[name]=RUNNING`、finally 中 `active -= 1` 处观察 queued/running 数量。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+三个状态均 `SUCCEEDED`，结果无遗漏，`max_active=2` 且不超过 `concurrency_limit`。
