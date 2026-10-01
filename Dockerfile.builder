@@ -1,4 +1,4 @@
-FROM ghcr.io/quarto-dev/quarto-full:1.11.1@sha256:fb4b3d369c7399f97dbfcc90a4edfdd09fc581f4cd654813ba84694248e65b13
+FROM ghcr.io/quarto-dev/quarto-full:1.11.5@sha256:3c0f92b4b7d02ec996a456452d242edc63416747639b4172fc04bb20c844dde3
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC LANG=C.UTF-8 LC_ALL=C.UTF-8
