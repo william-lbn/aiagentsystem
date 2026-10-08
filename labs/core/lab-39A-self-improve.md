@@ -1,17 +1,18 @@
-# Lab 39A — Self-Improving Agent：优化、验证与回滚｜正常路径
+# Lab 39A — Self-Improving Agent：配对评测、Canary 与版本提升｜正常路径
 
 ## 实验目标
 
-验证不变量：**self-modification requires an external evaluation gate and a reversible rollout**
+在同一组四个任务上比较 baseline/candidate：candidate 的 verified success 提升 0.25，成本比 1.025，且没有安全回归。通过离线 hard gate 后进入 canary；独立 verifier 通过才把 active version 从 v1 切到 v2。
+
+## 可证伪假设与不变量
+
+不变量：自我改进产生的是候选 artifact，不是修改生产的权限。candidate 必须在独立、配对、版本化的 eval 上过门，并保留 baseline。本实验只模拟单进程内存指针，不验证生产原子回退。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；纯标准库；不需要模型或 API key；
+- 结果是 rollout 控制面的真实执行，不是训练算法质量实验；
+- 实际 prompt/skill/model 优化时，应保存 candidate digest、生成 lineage、held-out results 和 canary telemetry。
 
 ## 环境准备
 
@@ -22,31 +23,40 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch39_self_improve.py`；核心机制：`src/agentlab/course_scenarios.py::self_improve`。
+```python
+decision = ImprovementGate().compare(baseline, candidate)
+assert decision.eligible
+rollout = CanaryRollout("policy-v1")
+rollout.start("policy-v2", decision)
+action = rollout.finish(verifier_passed=True, safety_violations=0)
+assert action == "PROMOTED" and rollout.active_version == "policy-v2"
+```
 
-本实验输入由 `self_improve` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::self_improve`
-- `examples/chapters/ch39_self_improve.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch39_self_improve.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "self-modification requires an external evaluation gate and a reversible rollout", "invariant_holds": true, "observation": {"action": "promote", "baseline": {"cost": 10, "success": 8}, "candidate": {"cost": 11, "success": 9}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "self-improve", "system_detected": false}
+{"offline_gate":{"status":"CANARY_ELIGIBLE","success_delta":0.25,"cost_ratio":1.025,"eligible":true,"checks":{"paired_tasks":true,"success_improves":true,"no_safety_regression":true,"no_high_risk_regression":true,"cost_within_budget":true}},"canary_action":"PROMOTED","active_version":"policy-v2","history":["ACTIVE:policy-v1","CANARY:policy-v2","PROMOTED:policy-v2"],"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- baseline/candidate task ids 是否完全相同；
+- 安全指标是否 hard gate 而非与 success 求平均；
+- canary 开始时 baseline 是否仍可寻址；
+- promotion 是否只改变 active pointer，不覆盖历史 artifact。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；五项离线 check 全真；candidate 进入内存 canary 状态后才 promotion；active version 为 v2。L1 不声称候选来自模型自动优化、真实线上 canary、跨进程原子性或用户收益。
+
+## 反例与进阶注入
+
+- 用 bootstrap/随机种子报告置信区间，不凭四个样本发布生产模型；
+- 按 tenant、语言、风险层做 slice，防止总体改善掩盖子群退化；
+- 让 candidate 修改 evaluator，确认权限和 digest gate 阻断 Goodhart 攻击。

@@ -130,6 +130,7 @@ output-qa:
 
 content-qa:
 	$(PYTHON) scripts/qa_content_semantics.py
+	$(PYTHON) scripts/generate_chapter_audit_matrix.py --check
 
 qa: source-qa readme-qa source-lock-qa upstream-contract-qa l5-evidence-qa external-benchmark-contract-qa builder-lock-qa quarto-config-qa book-qa pdf-structure-qa workbook-structure-qa slides-qa output-qa content-qa
 

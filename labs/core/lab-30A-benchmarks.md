@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**benchmark claims require a fixed task, environment snapshot, and independent verifier**
+验证 benchmark 的身份先于分数：只有 task set、environment、verifier、harness revision 和 seed 全部一致，两次 run 才允许聚合或排序；同时对 5 个确定性任务报告 Wilson 95% 区间，避免把小样本 `5/5` 误写成已知的真实成功率 100%。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；x86_64/arm64；核心实验不需要 Docker、网络、模型或 API key；
+- fixture 是本地采购规则，不冒充 SWE-bench/WebArena 成绩；
+- 外部 coding/browser 合约状态仍为 `NOT_EXECUTED_IN_THIS_RELEASE`，见 `experiments/benchmarks/catalog.json`。
 
 ## 环境准备
 
@@ -22,31 +19,44 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch30_benchmarks.py`；核心机制：`src/agentlab/course_scenarios.py::benchmarks`。
+入口为 `examples/chapters/ch30_benchmarks.py`；`BenchmarkManifest` 和 `compare_manifests` 位于 `src/agentlab/assurance_system.py`。Manifest 本身也 canonical hash：
 
-本实验使用确定性的采购策略回归 fixture：输入、策略、期望决策、schema、seed 与 verifier 都进入 manifest，fixture 采用 canonical JSON 的 SHA-256 作为可比性身份。实验不调用模型，因此它隔离验证 benchmark harness 自身，而不是测模型能力。
+```python
+manifest = BenchmarkManifest(
+    benchmark="agentlab-procurement-5",
+    task_set_digest=content_digest(tasks),
+    environment_digest="sha256:publisher-image-locked",
+    verifier_digest=content_digest(verifier_contract),
+    harness_revision="agentlab-assurance-v1",
+    seed=20260911,
+)
+decision = compare_manifests(manifest, replay_manifest)
+report = benchmark_report(manifest, verified_outcomes)
+```
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::benchmarks`
-- `examples/chapters/ch30_benchmarks.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch30_benchmarks.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "benchmark claims require a fixed task, environment snapshot, and independent verifier", "invariant_holds": true, "observation": {"comparable": true, "manifest": {"fixture_schema": "agentlab.procurement.v1", "fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "seed": 20260911, "task_id": "procurement-policy-regression-017", "verifier": "policy-decision-and-effect-count/v1"}, "run1": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}, "run2": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "benchmarks", "system_detected": false}
+{"comparability":{"aggregate_allowed":true,"comparable":true,"mismatches":[]},"aggregate_published":true,"report":{"accuracy":1.0,"successes":5,"tasks":5,"wilson_95":[0.5655,1.0]},"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- `BenchmarkManifest.digest`：确认所有受控变量进入身份；
+- `compare_manifests`：确认在计算跨 run delta 前执行；
+- `wilson_interval`：观察为什么 `5/5` 的下界只有约 0.5655；
+- `aggregate_published`：确认由 comparability gate 决定，不由高分决定。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明两次 2/2 verifier 结果来自同一个 bit-identical fixture。它不外推成第三方模型或云服务性能结论；真实 coding/browser 路径及其未运行状态见 `experiments/benchmarks/catalog.json`。
+退出码 0；`mismatches=[]`、`aggregate_allowed=true`；report 为 `5/5` 且带区间。L1 证明本地 harness 身份与统计报告机制，不证明任一大模型能力。
+
+## 外部基准执行约束
+
+真实 SWE-bench 必须保存实例、repository/base commit、test patch、Docker image、harness commit、模型配置、完整 patch 和官方 evaluator 输出；真实 browser benchmark 还需站点 snapshot/reset、账户状态和 action/observation trajectory。预检通过不等于 benchmark 已运行，下载数据不等于任务 resolved。

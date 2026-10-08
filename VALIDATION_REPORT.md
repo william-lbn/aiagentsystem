@@ -4,8 +4,11 @@
 
 - Content version: **v1.0.0**
 - Build System: **1.1.2**
+- Source/protocol/research cutoff: **2026-09-11**
+- Dependency security refresh: **2026-10-08**; this operational patch does not change the book's protocol/research cutoff.
+- This-worktree local verification date: **2026-10-08**
 - Local publisher actually executed: **Pandoc compatibility path**
-- Hosted canonical publisher actually executed: **Quarto 1.11.1 in the digest-pinned OCI builder**; see the [CI workflow history](https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml)
+- Hosted canonical status: **PENDING FOR THIS COMMIT**. Historical Quarto runs in the digest-pinned OCI builder do not verify this source revision; see the [CI workflow history](https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml)
 - External upstream/provider/browser/GPU/cloud experiments: **not promoted without execution evidence**
 
 ## Validation results
@@ -13,26 +16,27 @@
 | Gate | Result | Evidence |
 |---|---|---|
 | Core Labs | PASS | 80/80; fault evidence level is recorded separately |
-| Pytest + coverage | PASS | 114/114; 90% line coverage; required floor 85% |
+| Pytest + coverage | PASS | 237/237; 89.81% line/branch-aware coverage; required floor 85% |
 | Ruff source lint | PASS | Python source, tests, production service, experiments, scripts, examples and labs |
-| Python dependency audit | PASS | `pip-audit --local`; no known vulnerabilities; CycloneDX SBOM generated |
+| Python dependency audit | PASS (2026-10-08) | `pip-audit --local`; urllib3 2.7.0 first failed with 3 advisories, then locked 2.8.0 and reran to zero known vulnerabilities; CycloneDX SBOM regenerated |
 | Python examples | PASS | 69/69 |
-| Local compatibility Book QA | PASS | 40 chapters / 80 labs / **462-page** PDF |
-| PDF structure QA | PASS | 7 parts / 40 chapters / 6 appendices |
-| Local compatibility Workbook structure QA | PASS | **164 pages / 80 labs** |
-| Slides QA | PASS | **90 slides** |
-| Local compatibility Output QA | PASS | Site **127 pages**; main book 462; workbook 164 |
-| Hosted canonical publication | PASS | Quarto 1.11.1 container: main book **484 pages**; workbook **165 pages**; site **127 HTML pages**; slides **90**; canonical artifact upload succeeded |
-| Source QA | PASS | 40 chapters / 6 appendices / 80 labs / 80 diagrams / 100 source locks |
-| SOURCE_LOCK coverage | PASS | 48 unique external URLs covered; 1 `.invalid` fixture allowlist |
+| Local compatibility Book QA | PASS | 40 chapters / 80 labs / **328-page** PDF |
+| PDF structure QA | PASS | 7 parts / 40 chapters / 13 appendices |
+| Local compatibility Workbook structure QA | PASS | **135 pages / 80 labs** |
+| Slides structure QA | PASS WITH LIMIT | **90 slides**; OOXML contains Chinese text and East Asian font metadata. Headless LibreOffice on this macOS host substituted a font without CJK glyphs, so visual rendering is **not certified**; validate in target PowerPoint/LibreOffice environment before distribution. |
+| Local compatibility Output QA | PASS | Site **134 pages**; main book 328; workbook 135 |
+| Hosted canonical publication | PENDING | Must run on the next commit; historical hosted results are not promoted to this worktree |
+| Source QA | PASS | 40 chapters / 13 appendices / 80 labs / 80 diagrams / 114 source locks |
+| SOURCE_LOCK coverage | PASS | 106 references / 44 unique external URLs covered; 1 `.invalid` fixture allowlist |
 | Upstream contract QA | PASS | 10 contracts; status=`EXTERNAL_NOT_RUN_IN_THIS_RELEASE` |
 | Scoped L5 evidence QA | PASS | 6/6 pinned official/upstream implementation runs; schema v2, source/artifact hashes and claim ceilings verified |
 | External benchmark contract QA | PASS | 2 pinned contracts; SWE-bench/WebArena remain `NOT_EXECUTED_IN_THIS_RELEASE` and publish no score |
 | Builder contract QA | PASS | digest-pinned base + uv pin + explicit APT non-hermetic ceiling |
-| Content semantics QA | PASS | exact/normalized repeat max=2; fuzzy groups=0 |
-| Repository QA | PASS | `VALIDATION_OK version=v1.0.0 ... pdf_pages=462 source_locks=100` |
-| Repeated artifact serialization | PASS | Book PDF/EPUB, Workbook PDF/EPUB, Slides PPTX rebuilt twice with identical SHA-256; PPTX reopened successfully |
-| Same-host two-clean-extraction rebuild | PASS | `artifacts=134 raw_sha256=130 pdf_semantic=2 epub_payload=2`; SOURCE-CLEAN SHA、主机/Python、比较策略与逐文件指纹见 `validation_logs/same-host-clean-rebuild.json` |
+| Content semantics QA | PASS | exact/normalized repeat max=1; fuzzy groups=0 |
+| Repository QA | PASS | `VALIDATION_OK version=v1.0.0 build_system=1.1.2 chapters=40 labs=80 chapter_examples=40 pdf_pages=328 source_locks=114` |
+| PDF visual sample | PASS WITH SCOPE | Current main-book pp. 323–324 inspected as rendered PNG; automated full-book/workbook structure checks passed. This is not a page-by-page visual certification. |
+| Repeated artifact serialization | PENDING | Previous evidence predates this worktree; rerun after commit in the release workflow |
+| Same-host two-clean-extraction rebuild | PENDING | Previous `same-host-clean-rebuild.json` predates this worktree and is not claimed as current evidence |
 
 ## Correctness evidence in v1.0
 
@@ -45,7 +49,8 @@
 7. Fault-lab PASS semantics distinguish oracle-only detection, system detection, containment and recovery.
 8. MCP/A2A official SDKs now cross real process/socket boundaries; OpenAI Agents/LangGraph/ADK/MAF persistence surfaces are separately verified instead of conflated.
 9. External benchmark readiness, actual execution and evaluator evidence are separate states; the local preflight is not treated as a score.
+10. Parts VI–VII add independent evaluation, benchmark comparability, tamper-evident traces, capability authorization, external-effect reconciliation, tenant-scoped HTTP, deployment contract inspection, dataset contamination gates, realtime cancellation epochs, canary rollback and an end-to-end durable capstone. The 2026-10-08 audit narrowed static, in-memory and local-fixture claims in Chapters 36–40 and fixed the local HTTP reverse-DNS delay.
 
 ## Evidence limits
 
-This report does **not** claim cross-host bit-for-bit reproducibility, APT snapshot hermeticity, exactly-once external side effects, real SWE-bench/WebArena scores, or complete execution of the ten third-party upstream contracts. The six scoped external implementation runs prove only the dimensions recorded in their evidence vectors. Detailed audit: [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md).
+This report does **not** claim current hosted-canonical completion, current clean-rebuild equivalence, cross-host bit-for-bit reproducibility, APT snapshot hermeticity, exactly-once external side effects, real SWE-bench/WebArena scores, real post-training quality gains, realtime-provider latency, multi-architecture image execution, or complete execution of the ten third-party upstream contracts. The six scoped external implementation runs prove only the dimensions recorded in their evidence vectors. Detailed audit: [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md).

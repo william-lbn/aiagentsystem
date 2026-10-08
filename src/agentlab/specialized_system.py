@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from threading import Thread
 from typing import Any, Iterable
@@ -19,6 +19,8 @@ from urllib.request import Request, urlopen
 import hashlib
 import json
 import sqlite3
+
+from .local_http import LoopbackHTTPServer
 
 
 def _json(value: Any) -> str:
@@ -299,7 +301,7 @@ class LocalBrowserTask:
                 self.end_headers()
                 self.wfile.write(body)
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
 

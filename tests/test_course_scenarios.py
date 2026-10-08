@@ -1,5 +1,15 @@
 import pytest
-from agentlab.course_scenarios import SCENARIOS, run_scenario
+from agentlab.course_scenarios import SCENARIOS, _ok, run_scenario
+
+
+def test_fault_evidence_is_not_awarded_by_scenario_name():
+    result = _ok("capstone", True, {"actual_effect_count": 2}, "exactly one effect", False,
+                 detected=True, contained=True, recovered=True)
+    assert not result.passed
+    assert result.evidence_level == "L2_ORACLE_ONLY"
+    assert not result.recovered and not result.contained and not result.invariant_holds
+    with pytest.raises(ValueError, match="detection"):
+        _ok("capstone", True, {}, "no effect", True, contained=True)
 
 
 @pytest.mark.parametrize("fault", [False, True], ids=["normal", "fault"])

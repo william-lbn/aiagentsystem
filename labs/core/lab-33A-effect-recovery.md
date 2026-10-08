@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**UNKNOWN must be reconciled against actual state before retry or compensation**
+通过两个独立 SQLite 数据库模拟 runtime 与外部支付方：本地先写 intent，远端按 idempotency key 提交 effect，本地收到 receipt 后才标记 `COMMITTED`；重复执行返回同一 receipt，远端只有一条记录。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13，SQLite WAL + `synchronous=FULL`；x86_64/arm64；
+- 两个数据库代表两个 durability domain，但仍在同一进程/主机；
+- 无模型、网络、Docker 或 API key。生产系统需把 `lookup` 替换为 provider 官方查询接口。
 
 ## 环境准备
 
@@ -22,33 +19,40 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch33_effect_recovery.py`；核心机制：`src/agentlab/course_scenarios.py::effect_recovery`。
+入口为 `examples/chapters/ch33_effect_recovery.py`；核心是 `ExternalEffectLedger` 与 `EffectCoordinator`：
 
-本实验输入由 `effect_recovery` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```python
+receipt = coordinator.execute("charge-33", "charge_cents", 4200)
+same_receipt = coordinator.execute("charge-33", "charge_cents", 4200)
+assert receipt == same_receipt
+assert remote.count("charge-33") == 1
+```
 
-## 调试断点
+idempotency key 与 operation/amount 绑定；相同 key 改变参数会失败，不能把“去重”变成悄悄复用旧结果。
 
-- `src/agentlab/course_scenarios.py::effect_recovery`
-- `examples/chapters/ch33_effect_recovery.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch33_effect_recovery.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "UNKNOWN must be reconciled against actual state before retry or compensation", "invariant_holds": true, "observation": {"journal_valid": true, "observed": "COMMITTED", "reconciled": "COMMITTED", "reported": "COMMITTED"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "effect-recovery", "system_detected": false}
+{"reported_before_reconcile":"COMMITTED","reconciled":"COMMITTED","receipt":"rcpt_046c902140291034","remote_effect_count":1,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- local intent 的 `PREPARED` commit；
+- remote `INSERT OR IGNORE` 与参数一致性检查；
+- receipt 返回、本地 `COMMITTED` 更新之间的窗口；
+- 重复 execute 的 fast path，确认不再次写远端。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；receipt 稳定；本地最终 `COMMITTED`；远端 effect count 为 1。L1 证明正常提交和幂等重放，不证明网络超时后的恢复，后者由 Lab 33B 验证。
+
+## 生产迁移
+
+支付、邮件、部署和消息各自需要不同 reconciliation：查询 provider by idempotency key、读取 message receipt、观察 deployment revision 或消费 outbox。只有 provider 支持稳定查询与去重时才能安全自动恢复；否则 UNKNOWN 应进入人工队列，不可乐观重试。

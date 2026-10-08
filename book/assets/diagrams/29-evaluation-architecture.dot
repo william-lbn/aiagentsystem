@@ -2,15 +2,14 @@ digraph G {
 graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
 node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
 edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Task spec",fillcolor="#edf5ff"];
-n2 [label="Trajectory",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Verifier",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+task [label="版本化 Task spec\n输入·环境·能力·预算",fillcolor="#fff4e6"];
+agent [label="Agent / Runtime\n只提交 claim 与 artifact",fillcolor="#edf5ff"];
+ledger [label="Evidence ledger\ntrajectory · effect · cost",fillcolor="#eef9f1"];
+verifier [label="独立 Verifier\n程序·环境·人类/LLM rubric",fillcolor="#f6efff"];
+gate [label="Promotion gate\nELIGIBLE / QUARANTINED",fillcolor="#f7f9f9"];
+task->agent [label="digest-bound"];
+agent->ledger [label="durable observations"];
+task->verifier;
+ledger->verifier;
+verifier->gate [label="versioned checks"];
 }

@@ -2,15 +2,17 @@ digraph G {
 graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
 node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
 edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Fixture",fillcolor="#edf5ff"];
-n2 [label="Environment",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Submission",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+corpus [label="Task corpus\ninstances + digests",fillcolor="#fff4e6"];
+environment [label="Environment snapshot\nimage · data · account",fillcolor="#edf5ff"];
+harness [label="Agent harness\nmodel · tools · budget",fillcolor="#eef9f1"];
+verifier [label="Independent verifier\ntests · rubric · state",fillcolor="#f6efff"];
+manifest [label="Comparability manifest\ncommit · seed · resources",fillcolor="#edf5ff"];
+report [label="Evidence report\nscore · interval · failures",fillcolor="#f7f9f9"];
+corpus->harness;
+environment->harness;
+harness->verifier [label="artifact + trajectory"];
+corpus->manifest;
+environment->manifest;
+verifier->manifest;
+manifest->report [label="gate before aggregate"];
 }

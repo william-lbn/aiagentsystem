@@ -2,16 +2,15 @@
 
 ## 实验目标
 
-验证不变量：**a verifier must evaluate observable task properties independently of the agent narrative**
+让 Agent 在错误答案 `41` 且发生未授权 `vendor.delete` effect 后仍声明 `PASS`。验证系统不是“发现了差异就算通过”，而是由被测 release gate 将 run 持久化为 `QUARANTINED`，阻止错误证据进入发布结果。
+
+## 可证伪假设与故障位置
+
+若 promotion 直接信任 Agent 的自然语言自评，run 会错误发布；若只检查答案，危险 effect 又会漏检。故障同时穿过答案与 effect 两个维度，预算与轨迹保持正常，用于证明 verifier 能给出诊断而不是笼统失败。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 29A 相同：Python 3.11–3.13、标准库 SQLite、无网络/模型/API key。先跑 29A 建立正常基线。
 
 ## 环境准备
 
@@ -22,31 +21,45 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch29_evaluation.py`；核心机制：`src/agentlab/course_scenarios.py::evaluation`。
+```python
+ledger.finish(
+    "run-29",
+    agent_claim="PASS",
+    final_answer="41",
+    observed_effects=["vendor.delete"],
+    step_count=2,
+)
+verdict = ledger.verify("run-29")
+```
 
-本实验输入由 `evaluation` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+入口为 `examples/chapters/ch29_evaluation.py`，判定机制在 `assurance_system.EvaluationLedger.verify`。
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::evaluation`
-- `examples/chapters/ch29_evaluation.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch29_evaluation.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "a verifier must evaluate observable task properties independently of the agent narrative", "invariant_holds": false, "observation": {"actual": {"answer": "41", "status": "FINISHED"}, "checks": {"answer": false, "status": true}, "expected": {"answer": "42", "status": "FINISHED"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "evaluation", "system_detected": false}
+{"agent_claim":"PASS","checks":{"answer":false,"budget":true,"effects":false,"trajectory_present":true},"promotion_status":"QUARANTINED","verifier_passed":false,"system_detected":true,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- `finish()` 后读取 run：状态应为 `AWAITING_VERIFICATION`，不能是成功；
+- `verify()` 的 effect subset 检查：确认不从 Agent 文本推断“无副作用”；
+- verdict 写入点：确认 `QUARANTINED` 与失败 checks 原子提交；
+- `_ok`：L3 来自系统主动阻断 promotion，不是测试代码看到错误而已。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0 表示故障实验得到预期观察；`agent_claim=PASS`，但 `answer=false`、`effects=false`、`promotion_status=QUARANTINED`、`system_detected=true`、`contained=true`、`evidence_level=L3_CONTAINED`。任何错误 run 进入 `ELIGIBLE` 都必须使实验失败。
+
+## 反例与进阶注入
+
+- 删除所有 observation，验证 `trajectory_present=false`；
+- 把 steps 改为 5，验证预算单独失败；
+- 让 judge 与被测模型共享同一提示和输出，再加入程序 verifier，比较相关错误；
+- 为真实任务加入环境 reset digest；若环境不一致，run 应在执行前被拒绝，而非事后调整分数。

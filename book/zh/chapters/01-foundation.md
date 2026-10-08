@@ -25,11 +25,12 @@
 从系统论角度，一个可执行 Agent 可抽象为：
 
 $$
-S_{t+1},\ I_t = \Pi_\theta(O_t, C_t, S_t, G, \mathcal{T});\qquad
-E_t = K(I_t, P_t, A_t)
+I_t \sim \Pi_\theta(\cdot\mid O_t,C_t,S_t,G,\mathcal{T}),\qquad
+D_t=Authorize(I_t,P_t,A_t),\qquad
+(S_{t+1},R_t)=RuntimeTransition(S_t,I_t,D_t,O_t^{ext})
 $$
 
-其中模型策略 $\Pi_\theta$ 根据观察 $O_t$、上下文 $C_t$、状态 $S_t$、目标 $G$ 与工具目录 $\mathcal{T}$ 产生**意图** $I_t$；可信 Runtime $K$ 再结合策略 $P_t$ 和授权 $A_t$ 决定是否形成外部效果 $E_t$。模型能提出动作，不等于模型拥有执行权。
+其中模型策略 $\Pi_\theta$ 根据观察 $O_t$、上下文 $C_t$、可信状态 $S_t$、目标 $G$ 与工具目录 $\mathcal{T}$ 提议**意图** $I_t$；授权器根据策略 $P_t$ 和可验证授权材料 $A_t$ 形成决策 $D_t$。只有可信 Runtime 能按外部观测 $O_t^{ext}$ 更新规范状态并保存回执 $R_t$。$R_t$ 可以是 `COMMITTED`、`NOT_APPLIED` 或 `UNKNOWN`，后者不允许由模型文字擅自改写为成功；完成结论还须交给独立验证器。模型可以建议状态迁移，但不能直接写入规范状态或取得执行权。
 
 “Agent 性”至少有三个正交维度：
 

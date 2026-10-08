@@ -74,3 +74,5 @@
 - [附录 I：第三篇问题参考答案](appendix-i-part3-solutions.md)
 - [附录 J：第四篇进阶问题参考答案](appendix-j-part4-solutions.md)
 - [附录 K：第五篇进阶问题参考答案](appendix-k-part5-solutions.md)
+- [附录 L：第六篇进阶问题参考答案](appendix-l-part6-solutions.md)
+- [附录 M：第七篇进阶问题参考答案](appendix-m-part7-solutions.md)

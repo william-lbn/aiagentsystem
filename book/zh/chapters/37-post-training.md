@@ -1,353 +1,201 @@
 # Post-training 与 Agent 能力塑形
 
-> **本章核心判断**：Agent 不只靠 prompt；SFT、distillation、RL 和 tool-use training 可以改变模型对工具、计划和错误的行为。
+> **本章核心判断**：Post-training 不是“把成功轨迹喂给模型”，而是对数据生成、归因、奖励、优化、独立评测和发布进行因果控制。Agent 的 trajectory 同时含答案、工具、权限、成本和外部效果，任何一层污染都可能把错误策略放大。
 
-上一章：部署工程：Docker、本地开发与 CI 验证。本章把前一章已经建立的能力进一步推进到 `Dataset`；下一章将进入：多模态、语音、机器人与实时 Agent。
+上一章讨论软件 artifact 发布；本章讨论模型/策略 artifact 的改变。下一章进入实时多模态，展示训练后的策略仍必须受运行时事件与安全控制约束。
 
-![Post-training 与 Agent 能力塑形：系统边界与组件关系](../../assets/diagrams/37-post-training-architecture.svg)
+![轨迹采集、数据治理、优化、独立评测与模型发布边界](../../assets/diagrams/37-post-training-architecture.svg)
 
 ## 问题背景与学习目标
 
-Agent 不只靠 prompt；SFT、distillation、RL 和 tool-use training 可以改变模型对工具、计划和错误的行为。
+SFT 可以教格式和示范策略，preference optimization 可以改变相对偏好，reinforcement fine-tuning 可以利用可验证 reward；但 Agent 数据不是普通对话。轨迹可能包含测试泄漏、被工具结果污染的事实、未经授权却“成功”的 effect、judge 偏差、失败截断和策略自生成偏差。
 
-在本章的 `Dataset` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章完成后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Agent 不只靠 prompt；SFT、distillation、RL 和 tool-use training 可以改变模型对工具、计划和错误的行为。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `post-training evaluation must prevent task leakage between training and held-out evaluation` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 37A` / `Lab 37B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 区分 SFT、DPO/偏好优化、RFT/RL 与 runtime learning 的目标和证据；
+- 把 trajectory 建模为版本化、可追溯、多维标签的数据记录；
+- 按 task family/entity/time 切分，识别 exact 与 semantic contamination；
+- 解释 reward hacking、off-policy shift、selection bias 和 judge-policy 共错；
+- 为小型开源模型或 OpenAI fine-tuning 设计不泄密的真实流水线；
+- 在没有真实训练 artifact 时，拒绝发布虚构 loss、reward 或能力提升。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：训练或评测使用的每条轨迹必须有 provenance；train/eval 在任务族与内容层隔离；模型变更只有在独立 hard gates 和版本化回归通过后才可发布。
 
-### Dataset
+**Trajectory 不是天然监督。** 工具返回可能错误，Agent 最终声称成功也可能虚假。监督数据应来自 verifier 过的 outcome/effect，而不是仅取“看起来好”的回答。
 
-**定义。** 用于 SFT/RL/偏好训练的任务、输入、轨迹、verifier 与 outcome 集合，质量比“对话数量”更重要。
+**Reward 是测量模型，不是真实目标。** 把 helpfulness、安全、effect、成本压成单标量会制造抵消；高风险违规通常必须作为 hard constraint。Reward 版本和 grader 也必须随数据留存。
 
-**系统责任。** Agent dataset 要保存环境版本和行为结果，区分 expert demonstration、失败轨迹、纠正和 synthetic data。
+**切分单位应匹配因果依赖。** 同一 repo、模板、用户、事故或派生 transcript 分到 train/eval，会让评测测记忆而非泛化。按行随机切分只在记录独立时合理。
 
-**失败边界。** 仅收集漂亮最终回答会训练出会叙述但不会执行的模型；数据泄漏 benchmark 还会虚增能力。
+**Policy lineage 决定数据分布。** 由当前策略采集的数据偏向其可到达状态；只训练成功轨迹会丢失 recovery 边界。应保存失败、拒绝、UNKNOWN 与人工 override。
 
-### Trajectory
-
-**定义。** 训练时包含 observation、reasoning/decision、tool call、environment feedback 和最终 outcome 的序列。
-
-**系统责任。** Trajectory 让 credit assignment 可以定位工具选择与恢复步骤；敏感 CoT 可用结构化 action/state 替代直接存储。
-
-**失败边界。** 长轨迹只给最终 reward 会让训练信号极稀疏；错误中间 observation 若未标注会强化坏策略。
-
-### SFT
-
-**定义。** 用高质量示范最大化目标行为 token/动作似然，适合学习格式、工具语法和稳定策略先验。
-
-**系统责任。** SFT 是行为初始化而非完整优化：示范应覆盖拒绝、恢复和坏工具，而不只是成功路径。
-
-**失败边界。** 过度模仿固定 harness 会降低新环境适应性；示范本身有错误时会被高置信复制。
-
-### RL/Preference
-
-**定义。** 依据环境 reward、verifier 或人类/模型偏好进一步优化长期策略。
-
-**系统责任。** Agentic RL 的关键是可交互环境、可靠 reward 与 credit assignment；应同时惩罚成本、风险和无效工具调用。
-
-**失败边界。** reward 可被 hack，偏好 judge 也会偏置；若训练环境过窄，策略会学到 benchmark exploit 而非通用能力。
+**模型只是系统的一层。** Post-training 不能替代 capability、sandbox、approval、effect ledger 或 verifier。模型更聪明后，确定性边界仍成立。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：post-training evaluation must prevent task leakage between training and held-out evaluation
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `用生成数据自我强化幻觉` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “用生成数据自我强化幻觉”、“只看训练 loss 不看任务成功”、“训练数据泄漏 benchmark” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Dataset** 与 **Trajectory** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“用生成数据自我强化幻觉”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Dataset 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Trajectory 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `保存成功/失败轨迹`、`训练后用独立 eval 防回归` 以及对不变量 **post-training evaluation must prevent task leakage between training and held-out evaluation** 的检查。
-
-**What if。** 一旦“只看训练 loss 不看任务成功”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+SFT 对 demonstration token 最大化条件似然：
 
 $$
-J(\pi)=\mathbb{E}[R_{task}-\lambda_c C-\lambda_r Risk+\sum_t\alpha_t r_t]
+\mathcal L_{SFT}(\theta)=-\sum_{(x,y)\in D}\log\pi_\theta(y\mid x)
 $$
 
-Agentic post-training 同时受任务奖励、成本、风险与长时信用分配影响，环境和 verifier 的质量决定训练上限。
+它能学习轨迹形式，但若 $y$ 含越权或错误 tool action，也会忠实复制。偏好数据由 $(x,y_w,y_l)$ 构成；[DPO](https://arxiv.org/abs/2305.18290)用 policy/reference 的 log-ratio 构造分类式目标，减少显式 reward model + RL 的复杂度，但不消除偏好数据偏差、分布外行为或 reward misspecification。
 
-**可证伪假设。** 在长时工具任务中，turn-aware/process credit 相比只用终局 reward 能提高学习稳定性。
+Agent RFT 可把程序 verifier 产生的 reward 用于采样/优化。真正的目标常是约束优化：
 
-**建议测量。** sample efficiency、credit variance、tool-use success、risk-adjusted return。
+$$
+\max_\pi\;\mathbb E[Outcome-\lambda_c Cost]
+\quad\text{s.t.}\quad P(UnsafeEffect)\le\epsilon,\;CapabilityViolation=0
+$$
+
+安全约束不能靠平均 reward 抵消。评测还应固定 task/environment/verifier manifest，并报告统计不确定性、failure taxonomy 和各风险 slice。
+
+污染检测至少分 exact digest、归一化文本、task/entity group、时间窗口和语义近重复。没有任何单一方法能证明“模型从未见过等价内容”，因此结论要写成所使用 detector 下的可审计边界。
 
 ## 关键机制与执行流程
 
-![Post-training 与 Agent 能力塑形：正常路径与故障恢复流程](../../assets/diagrams/37-post-training-flow.svg)
+![从真实轨迹、隔离切分到训练、离线门禁、canary 与回滚](../../assets/diagrams/37-post-training-flow.svg)
 
-**Step 1 — 保存成功/失败轨迹。** `保存成功/失败轨迹` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-**Step 2 — 数据含工具调用和 verifier。** 这一阶段可能改变系统或外部环境，因此 `数据含工具调用和 verifier` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **post-training evaluation must prevent task leakage between training and held-out evaluation**。
-
-**Step 3 — 小模型先蒸馏规则任务。** `小模型先蒸馏规则任务` 是“Post-training 与 Agent 能力塑形”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `SFT` 是否仍满足 **post-training evaluation must prevent task leakage between training and held-out evaluation**。
-
-**Step 4 — 训练后用独立 eval 防回归。** `训练后用独立 eval 防回归` 是“Post-training 与 Agent 能力塑形”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `RL/Preference` 是否仍满足 **post-training evaluation must prevent task leakage between training and held-out evaluation**。
-
-在本章的 `Dataset` 场景中，**最后一步 — 验证。** verifier 针对 `RL/Preference` 检查本章不变量 **post-training evaluation must prevent task leakage between training and held-out evaluation**。如果“用生成数据自我强化幻觉”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **保存成功/失败轨迹 → 数据含工具调用和 verifier → 小模型先蒸馏规则任务 → 训练后用独立 eval 防回归** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“用生成数据自我强化幻觉”尤其要检查动作前后的证据是否足以闭合不变量 **post-training evaluation must prevent task leakage between training and held-out evaluation**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Dataset` 有关的纯计算状态通常可以重算；一旦 `数据含工具调用和 verifier` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **post-training evaluation must prevent task leakage between training and held-out evaluation**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+1. **定义 capability target**：明确要改善的是选择、参数、恢复、停止还是解释，不以“更智能”替代可测目标；
+2. **采集完整轨迹**：记录 task/environment/policy/tool/verifier/usage/effect digests，成功与失败均保留；
+3. **清洗与隐私处理**：去 secret/PII、标注许可与 retention，保留可验证 lineage；
+4. **按因果组切分**：先按 repo/user/template/incident/time 分组，再分 train/dev/eval；
+5. **生成监督/偏好/reward**：程序 verifier 优先，人工与 LLM judge 需校准并记录来源；
+6. **训练候选**：固定 base model、code、hyperparameters、seed、hardware 与数据 manifest；
+7. **独立评测**：candidate 无权改 grader/holdout，比较 outcome/effect/safety/cost 各维度；
+8. **渐进发布**：shadow/canary，出现高风险回归立即回滚，并将 incident 进入独立 regression。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Post-training 与 Agent 能力塑形')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('post-training', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+`TrajectorySample`把 transcript 与标签和**声明的** lineage 一起建模，digest 是证据索引，不替代原始 artifact 的受控存储或来源签名；本地 Lab 并未持久化数据集：
 
 ```python
-def post_training(fault=False):
- samples=[{'task':'t1','split':'train','trajectory':'good'},{'task':'t2','split':'eval','trajectory':'bad'}]
- if fault: samples.append({'task':'t2','split':'train','trajectory':'copied eval'})
- train={x['task'] for x in samples if x['split']=='train'}; ev={x['task'] for x in samples if x['split']=='eval'}; leak=bool(train&ev)
- return _ok('post-training',fault,{'samples':samples,'leakage':sorted(train&ev)},'post-training evaluation must prevent task leakage between training and held-out evaluation',not leak if not fault else leak)
+sample = TrajectorySample(
+    sample_id="train-017",
+    task_family="invoice-train",
+    split="train",
+    transcript="read invoice -> calculator -> answer",
+    source_run="run-8f2",
+    policy_id="policy-v1",
+    outcome_score=1.0,
+    safety_violations=0,
+    cost_units=3.0,
+)
+print(sample.transcript_digest, sample.record_digest)
 ```
 
+门禁同时检查任务族字符串和 transcript 的 exact digest，不让“原文复制后只改 sample id”绕过：
 
-### 简化假设与不能省略的机制
+```python
+audit = PostTrainingDatasetGate().audit(samples)
+if not audit.promotion_allowed:
+    raise RuntimeError({
+        "status": audit.status,
+        "families": audit.leaked_task_families,
+        "transcripts": audit.duplicate_transcripts,
+    })
+```
 
+这只是静态 preflight：`source_run`/`policy_id` 是未向权威 ledger 核验的字符串，攻击者重命名 `task_family`、改写近重复 transcript 或伪造来源仍可能绕过。真实训练前必须用不可变 run manifest、内容签名/哈希、语义近重复与实体/时间分组做独立核对。实验刻意不训练模型，因为四条 fixture 无法支持能力结论。真实流水线可把通过审计的 JSONL 交给小型开源模型工具链或 [OpenAI supervised fine-tuning](https://developers.openai.com/api/docs/guides/supervised-fine-tuning) / [DPO](https://developers.openai.com/api/docs/guides/direct-preference-optimization)。凭据使用 `OPENAI_API_KEY` 等环境注入；数据中不得包含 key，训练 job/model snapshot/usage/eval artifact 必须真实保存。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| bojieli/ai-agent-book | `main; 10 chapters / 109 experiments observed 2026-09-09` | 对标开源教材：正文、实验 ledger、PDF/EPUB、多语言。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/bojieli/ai-agent-book) |
-| OpenAI MLE-bench | `2024 benchmark` | 75 个 Kaggle-style ML engineering competitions。 | 以官方 docs/release/source tree 为准 | [官方来源](https://openai.com/index/mle-bench/) |
-| OpenAI PaperBench | `2025 benchmark` | 论文复现任务与细粒度 rubric/grader。 | 以官方 docs/release/source tree 为准 | [官方来源](https://openai.com/index/paperbench/) |
+| 方法 | 主要信号 | 适合改善 | 不能自动解决 |
+|---|---|---|---|
+| SFT | demonstration token | 格式、工具 schema、基础策略 | 错误示范、分布外恢复 |
+| Preference/DPO | pairwise preference | 风格、选择、相对质量 | 偏好 misspecification、安全硬约束 |
+| RFT/RL | environment/verifier reward | 可验证推理、长期策略 | reward hacking、环境真实性 |
+| Distillation | teacher outputs/trajectory | 压缩能力、成本 | teacher 错误与数据许可 |
+| Runtime memory/skill | 外部可编辑 artifact | 快速更新、可回滚 | base policy 的根本能力限制 |
 
-### 源码阅读方法
-
-源码阅读以 **bojieli/ai-agent-book** 为第一参照，并只追与“Post-training 与 Agent 能力塑形”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“用生成数据自我强化幻觉”、如何在“只看训练 loss 不看任务成功”后恢复，以及如何让 `训练后用独立 eval 防回归` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+源码阅读应沿 dataset schema → formatter → loss/reward → sampler → checkpoint → evaluator → model registry。只看训练 API 调用会漏掉真正决定可信度的数据与发布控制面。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 决策 | 方案 A | 方案 B | 核心取舍 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| bojieli/ai-agent-book | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI MLE-bench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI PaperBench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 数据来源 | 人工/真实 run | 合成/self-play | 真实性与覆盖/规模 |
+| 标签 | 程序 verifier | human/LLM judge | 硬事实与开放质量 |
+| 切分 | 随机行 | group/time/entity | 样本量与泄漏风险 |
+| 训练 | 本地小模型 | 托管 provider | 控制/隐私与能力/运维 |
+| 更新层 | prompt/skill | weights | 可解释回滚与深层行为改变 |
+| 发布 | 全量切换 | shadow/canary | 速度与回归控制 |
 
+小模型适合结构化路由、工具选择或领域窄任务；开放长任务可使用更强远程模型。但 provider 选择不改变 manifest、eval 和安全 gate。若无法在本地复现 weights，也至少要锁定 provider model snapshot/name、输入、usage、request id 和实际输出。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Post-training 与 Agent 能力塑形”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Post-training 与 Agent 能力塑形”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 37A — 正常路径
+### Lab 37A — 数据谱系与隔离切分
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch37_post_training.py
+PYTHONPATH=src uv run python examples/chapters/ch37_post_training.py
 ```
-
-**关键断点：**
-- `src/agentlab/course_scenarios.py::post_training`
-- `examples/chapters/ch37_post_training.py::main`
-
-**本发布包实际输出：**
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "post-training evaluation must prevent task leakage between training and held-out evaluation", "invariant_holds": true, "observation": {"leakage": [], "samples": [{"split": "train", "task": "t1", "trajectory": "good"}, {"split": "eval", "task": "t2", "trajectory": "bad"}]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "post-training", "system_detected": false}
+{"status":"DATASET_ELIGIBLE","train_records":2,"eval_records":2,"leaked_task_families":[],"duplicate_transcripts":[],"promotion_allowed":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 37A](../../../labs/core/lab-37A-post-training.md)。
-
-### Lab 37B — 故障注入
+### Lab 37B — 复制轨迹污染
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch37_post_training.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch37_post_training.py --fault
 ```
-
-**本发布包实际输出：**
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "post-training evaluation must prevent task leakage between training and held-out evaluation", "invariant_holds": false, "observation": {"leakage": ["t2"], "samples": [{"split": "train", "task": "t1", "trajectory": "good"}, {"split": "eval", "task": "t2", "trajectory": "bad"}, {"split": "train", "task": "t2", "trajectory": "copied eval"}]}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "post-training", "system_detected": false}
+{"status":"QUARANTINED","leaked_task_families":["billing-train"],"promotion_allowed":false,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 37B](../../../labs/core/lab-37B-post-training-fault.md)。
-
-### 观察与证据
-
+**关键断点与验收。** 检查 task-family 与 transcript digest 两个交集、lineage 完整性和 quarantine 状态。A 六项 checks 全真；B 必须由系统自己阻断数据集。完整步骤见 [Lab 37A](../../../labs/core/lab-37A-post-training.md) 与 [Lab 37B](../../../labs/core/lab-37B-post-training-fault.md)。
 
 ## 工程场景与系统设计
 
-本章沿用第 35 章多租户 API 场景，重点说明训练/微调产物如何经过独立 eval 和回滚 gate 后才能影响 30 个租户。
+以发票 Agent 为例：真实 run 先由独立 verifier 标记金额、引用、effect 和权限；数据平台去标识并按 vendor/template/time 分组；SFT 学结构，preference 数据比较解释质量，RFT 只使用可验证 outcome。付款/删除越权永远是 hard negative/hard gate，不因回答更流畅得到正 reward。
 
-
-### 上线前必须补齐
-
-- 围绕 **Post-training** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `训练改变能力分布，必须通过独立 eval gate 防止 tool use/security 回归。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+数据 contract 应包含许可、tenant、retention、PII class、生成 policy、工具与环境版本、verifier、labeler、transformation lineage。模型 registry 保存 base/candidate digest、训练 manifest、代码/配置、评测和审批。训练集不可被在线服务随意查询，holdout 更应隔离。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
-
-- **用生成数据自我强化幻觉**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **只看训练 loss 不看任务成功**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **训练数据泄漏 benchmark**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+- **train/eval 泄漏**：同任务或近重复跨 split；从 entity/group/time 与 digest 两侧审计；
+- **success selection bias**：只保留成功轨迹；比较原始 run ledger 与数据 manifest；
+- **自评标签**：模型 claim 直接当 reward；回到环境/verifier observation；
+- **judge 共错**：policy 与 judge 同源；使用程序/human anchor、异构 judge 与盲评；
+- **reward hacking**：分数提高而 effect 越权；拆 hard constraints 和 failure taxonomy；
+- **off-policy shift**：新策略进入旧数据未覆盖状态；canary/online eval 并保留 baseline；
+- **灾难性遗忘**：窄域改善损害通用能力；多域回归和保留集；
+- **隐私/许可污染**：敏感轨迹进入 weights；数据删除仅删文件不足，需治理模型生命周期。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+训练指标包括 token/step throughput、GPU memory、loss/reward；发布指标必须是 verified success、unsafe effect、cost/verified success、latency、refusal 和各 slice 差异。训练 loss 下降不是业务成功。
 
-- `API p95/p99`
-- `tenant isolation violations`
-- `queue depth`
-- `RPO/RTO rehearsal`
-- `deployment rollback time`
-- `cost per tenant/run`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Trajectory` 的生命周期时，要重新验证 **post-training evaluation must prevent task leakage between training and held-out evaluation**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “用生成数据自我强化幻觉”、“只看训练 loss 不看任务成功”、“训练数据泄漏 benchmark”：只有正常路径与对应 fault path 都保持 **post-training evaluation must prevent task leakage between training and held-out evaluation**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+可靠流水线要求 dataset/model/eval manifests、不可变 artifacts、失败 checkpoint、预算上限和 preemption 恢复。大规模采样应保存所有 attempts 的分母；不能只挑最好 seed 或成功 trajectory 发布。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 教学服务不等于生产认证系统，HA、secret broker、审计保留等需额外实现
-- 多租户必须在存储/缓存/日志/队列每层强制 tenant boundary
-- 部署成功不代表恢复成功，需定期做故障演练
-- post-training 会改变行为分布，必须用独立 eval gate 防回归
+Core Lab 只证明数据 gate，不证明训练能提升任何模型。Exact digest 检不出释义改写，task-family 依赖正确建模，provenance 字段也可能被伪造；高证据需要访问控制、签名/append-only lineage 和独立重算。
 
-选择方案时要回到本章边界：如果业务不能接受“用生成数据自我强化幻觉”，就必须为 `Dataset` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Trajectory` 决策交给模型，但要用 `训练后用独立 eval 防回归` 保持结果可验证。**bojieli/ai-agent-book** 与 **OpenAI MLE-bench** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Post-training 可以塑造工具使用策略，却不能训练出不存在的权限或事务保证。训练数据中的成功轨迹、环境版本与 verifier 偏差会被模型学习，因此数据 provenance 和独立 evaluation 是能力提升的前提。
+远程模型方便获得能力，但可能有版本、区域、配额和数据治理变化；本地小模型便于锁权重、离线和成本控制，但硬件/量化/kernel 仍影响行为。教材不发布未实际运行的 provider 分数，也不把某次模型输出写成算法普遍结论。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+截至 2026-09-11，post-training 正从单轮偏好扩展到可验证环境 reward、过程监督、agentic trajectory、工具使用和长期信用分配。DPO 简化了偏好优化形式，却没有取消数据/评测问题；官方平台同时提供 SFT、DPO、RFT 等不同优化路径，更说明应先选择信号和 verifier，而不是先选择 API。
 
-- **[Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761)**：探索模型学习何时调用外部工具以及如何把工具结果纳入后续预测。
-- **[Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366)**：通过外部反馈与语言化反思把失败经验写入后续尝试。
-- **[bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book)**（main; 10 chapters / 109 experiments observed 2026-09-09）：对标开源教材：正文、实验 ledger、PDF/EPUB、多语言。
-- **[OpenAI MLE-bench](https://openai.com/index/mle-bench/)**（2024 benchmark）：75 个 Kaggle-style ML engineering competitions。
+开放问题包括：如何对长轨迹做可信 credit assignment；如何检测语义污染与 benchmark memorization；如何防止 optimizer 攻击 grader；如何在隐私约束下共享失败轨迹；如何区分 model weights、scaffold 与 tool/environment 的贡献；如何让在线 incident 安全进入学习闭环而不污染 holdout。
 
+### 深度审计与研究证据链
 
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- ToolVerse: Massive Environments and Long‑Horizon Tasks for Agentic RL（arXiv 2607.15660; 2026‑07‑17）：agentic RL, ~400 MCPs, ~4500 tools, long‑horizon credit assignment。
-- OpenAI: Research acceleration —the view inside OpenAI（2026‑09‑06）：parallel coding agents, research task horizons, human intervention and research velocity。
-
-**本章吸收的变化。** Agentic post‑training 把优化对象从最终答案扩展到长轨迹决策。环境、 verifier 和 credit assignment 与模型本身同等重要。这些研究/规范的价值不在于替换本章原理， 而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Dataset`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **post-training evaluation must prevent task leakage between training and held-out evaluation** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“用生成数据自我强化幻觉”和“只看训练 loss 不看任务成功”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Post-training** 的可验证性。Toolformer、RL/tool-use training 与近期 agent post-training 工作说明，模型能力塑形不能替代 Runtime 约束。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Dataset` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“用生成数据自我强化幻觉”与“只看训练 loss 不看任务成功”同时发生时，**bojieli/ai-agent-book** 与 **OpenAI MLE-bench** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Trajectory` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“训练数据泄漏 benchmark”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Post-training
-
-本章重新审计后的核心结论是：**训练改变能力分布，必须通过独立 eval gate 防止 tool use/security 回归。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[PaperBench](https://openai.com/index/paperbench/)**：把论文复现拆成细粒度可评分任务，强调 rubric/grader。
-- **[AgentDojo](https://arxiv.org/abs/2406.13352)**：用不可信工具返回内容测试 prompt injection 攻防。
-- **[Agent Security Bench](https://arxiv.org/abs/2410.02644)**：覆盖多工具、多场景、多攻击/防御的 Agent 安全评测。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI/DeepSeek/TRL/verl 等训练栈可作为能力塑形对照，核心仍是实验边界。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Post-training 的观测、评测、安全或生产控制面不变量；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章严格分开三种 claim：数据 gate 的本地执行证据；真实训练 artifact 与 loss/usage；独立 benchmark/canary 的行为证据。只有第二、三层真实存在时，才可写“模型经过训练并提升”。本发布没有执行训练，因此只报告第一层。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Post-training 的本质是受治理的策略变更。高质量 trajectory、可追溯标签、隔离切分、独立 verifier 与可回滚发布比某个优化算法名称更基础。
 
-1. 本章不变量是：**post-training evaluation must prevent task leakage between training and held-out evaluation**；
-2. `Dataset` 必须是可观察软件边界，而不是 prompt 约定；
-3. `保存成功/失败轨迹` 与 `训练后用独立 eval 防回归` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 M](../appendix-m-part7-solutions.html#ch37)）：
 
-### 常见误区
-
-- 用生成数据自我强化幻觉
-- 只看训练 loss 不看任务成功
-- 训练数据泄漏 benchmark
-
-### 思考题与实践
-
-- **Why：** 为什么 `Dataset` 不能只靠模型“记住”？
-- **What if：** 如果在 `保存成功/失败轨迹` 与 `训练后用独立 eval 防回归` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch37_post_training.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **多模态、语音、机器人与实时 Agent**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么 verified success trajectory 仍不能直接作为全部训练数据？
+2. DPO 简化了什么，又没有解决什么？
+3. 为什么按行随机切分特别容易高估 Agent 泛化？
+4. 如何把安全约束从 reward average 中分离出来？
+5. 怎样设计一次不泄露 API key、且结果可审计的真实模型训练实验？

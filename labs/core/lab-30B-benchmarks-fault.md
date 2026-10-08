@@ -2,16 +2,15 @@
 
 ## 实验目标
 
-验证不变量：**benchmark claims require a fixed task, environment snapshot, and independent verifier**
+给第二次 run 注入未声明的 environment digest 漂移。即使局部任务仍显示 `5/5`，comparability gate 也必须拒绝聚合，防止 leaderboard 把不同环境的数字当作模型差异。
+
+## 可证伪假设与故障位置
+
+假设：point score 不能证明结果可比较。故障只改变 `environment_digest`，保留 task/verifier/harness/seed 与分数不变；若系统仍发布 aggregate，则 provenance gate 失效。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 30A 相同；无模型、网络、Docker 或 API key。这个实验测试 benchmark control plane，而不是模型能力。
 
 ## 环境准备
 
@@ -22,33 +21,43 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch30_benchmarks.py`；核心机制：`src/agentlab/course_scenarios.py::benchmarks`。
+```python
+replay_manifest = replace(
+    manifest,
+    environment_digest="sha256:unreviewed-host-drift",
+)
+decision = compare_manifests(manifest, replay_manifest)
+assert not decision.aggregate_allowed
+```
 
-本实验故意把第二次运行的审批阈值从 5,000 美元漂移到 10,000 美元。两次运行仍各自显示 2/2 checks，但 canonical fixture hash 不同；oracle 必须拒绝跨 fixture 比分。
+入口为 `examples/chapters/ch30_benchmarks.py`；真实实现显式比较六个受控字段，而不是仅比较一个显示名称。
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::benchmarks`
-- `examples/chapters/ch30_benchmarks.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch30_benchmarks.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "benchmark claims require a fixed task, environment snapshot, and independent verifier", "invariant_holds": false, "observation": {"comparable": false, "manifest": {"fixture_schema": "agentlab.procurement.v1", "fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "seed": 20260911, "task_id": "procurement-policy-regression-017", "verifier": "policy-decision-and-effect-count/v1"}, "run1": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}, "run2": {"fixture_sha256": "cfbdc21ccd0eaf6d1231f51f0bddfc4888c3bc33a8caf1720de1d80460811446", "passed_checks": 2, "total_checks": 2}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "benchmarks", "system_detected": false}
+{"comparability":{"aggregate_allowed":false,"comparable":false,"mismatches":["environment_digest"]},"aggregate_published":false,"report":{"accuracy":1.0,"successes":5,"tasks":5,"wilson_95":[0.5655,1.0]},"system_detected":true,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- manifest 构造后比较两个 environment digest；
+- comparability gate 前确认两侧局部分数相同；
+- gate 后确认 aggregate/export 路径未被调用；
+- `_ok` 确认 L3 是发布被阻断，不是离线脚本打印 warning。
 
-特别注意：两个局部 verifier 都返回 2/2，正是这个 fault 的重点。若 leaderboard 聚合器只读取 score 而不校验 fixture identity，就会把不可比较的结果错误排序。
+## 验收标准
 
-### 进阶修改
+退出码 0；唯一 mismatch 是 `environment_digest`；`aggregate_published=false`、`contained=true`、`evidence_level=L3_CONTAINED`。若仍输出排名或 delta，实验失败。
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+## 反例与进阶注入
+
+- 分别漂移 verifier digest、task set、harness revision、seed，确认每项都 fail closed；
+- 在相同 manifest 下运行多个真实模型 seed，报告均值、分布和 paired outcome，而不是只选最好一次；
+- 让 Docker tag 相同但 image digest 不同，证明 tag 不能充当环境身份；
+- 将 `NOT_EXECUTED`、`UNSUPPORTED`、`FAILED_PREFLIGHT`、`SCORE=0` 设为不同状态，防止证据语义混淆。

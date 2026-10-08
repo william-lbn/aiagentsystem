@@ -6,6 +6,23 @@ services:
     ports:
       - "8010:8010"
     volumes:
-      - ./production/agentops_service/data:/app/production/agentops_service/data
+      - agentops-data:/app/production/agentops_service/data
     environment:
       - PYTHONUNBUFFERED=1
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  agentops-data:

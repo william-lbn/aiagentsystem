@@ -1,16 +1,20 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Proposal",fillcolor="#edf5ff"];
-n2 [label="Experiment",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Verifier",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.34",ranksep="0.52"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2,fillcolor="#f8fbfd"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+incident [label="Incident / trace\nhuman override",fillcolor="#fff4e6"];
+proposer [label="Untrusted proposer\nprompt / skill / code / model"];
+candidate [label="Candidate registry\ndigest + parent + diff",fillcolor="#edf5ff"];
+eval [label="Independent evaluator\nhidden tasks + hard gates",fillcolor="#f6efff"];
+canary [label="Shadow / canary\nlimited authority"];
+active [label="Atomic active pointer\nbaseline retained",fillcolor="#eaf7ee"];
+rollback [label="Rollback / quarantine",fillcolor="#fdecea"];
+incident->proposer;
+proposer->candidate;
+candidate->eval;
+eval->canary;
+canary->active;
+eval->rollback [label="offline fail",color="#b03a2e"];
+canary->rollback [label="online regression",color="#b03a2e"];
+rollback->incident [label="regression evidence",style=dashed];
 }

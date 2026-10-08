@@ -1,17 +1,18 @@
-# Lab 38A — 多模态、语音、机器人与实时 Agent｜正常路径
+# Lab 38A — 实时多模态 Agent：事件时间与取消 epoch｜正常路径
 
 ## 实验目标
 
-验证不变量：**realtime agents must propagate cancellation across modality and action boundaries**
+把音频 partial、视觉 frame 与候选工具结果写入同一有序事件流。候选工作在 epoch 0 注册并在用户打断前完成，因此只有一条**本地结果**被接受，且每个 payload 以 digest 留痕。没有调用外部执行器。
+
+## 可证伪假设与不变量
+
+不变量：实时系统中的 effect 只能在它被授权的 cancellation epoch 内提交。网络顺序、模型输出顺序与物理事件时间不能混为一谈。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；x86_64/arm64；不需要摄像头、麦克风、GPU 或 API key；
+- fixture 表示真实 session control-plane，不声称测量音视频模型质量或端到端媒体延迟；
+- OpenAI Realtime 或本地 streaming VLM/ASR 可替换感知层，但仍必须服从相同 epoch gate。
 
 ## 环境准备
 
@@ -22,31 +23,40 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch38_multimodal.py`；核心机制：`src/agentlab/course_scenarios.py::multimodal`。
+```python
+session = RealtimeSession()
+session.ingest(100, "audio", "audio.partial", {"text": "move"})
+session.ingest(105, "vision", "vision.frame", {"object": "arm", "distance_cm": 5})
+epoch = session.begin_effect("move-1", 110, {"distance_cm": 5})
+assert session.complete_effect("move-1", epoch, 120, {"moved": True}) == "COMMITTED"
+assert len(session.effects) == 1
+```
 
-本实验输入由 `multimodal` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::multimodal`
-- `examples/chapters/ch38_multimodal.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch38_multimodal.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "realtime agents must propagate cancellation across modality and action boundaries", "invariant_holds": true, "observation": {"events": [[1.0, "audio.partial"], [1.1, "vision.frame"], [1.2, "user.interrupt"], [1.3, "tool.cancelled"]], "ordered": true, "safe_after_interrupt": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "multimodal", "system_detected": false}
+{"outcome":"COMMITTED","active_epoch":0,"effect_count":1,"events":[{"seq":1,"event_time_ms":100,"modality":"audio","kind":"audio.partial","epoch":0},{"seq":2,"event_time_ms":105,"modality":"vision","kind":"vision.frame","epoch":0},{"seq":3,"event_time_ms":110,"modality":"tool","kind":"effect.started","epoch":0},{"seq":4,"event_time_ms":120,"modality":"tool","kind":"effect.committed","epoch":0}],"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- sequence 与 event-time 的区别；
+- effect 注册的 epoch；
+- commit 之前的 active epoch 比较；
+- raw media 不入日志，只保留最小必要 metadata/digest。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；事件 seq 为 1–4；时间单调；effect started/committed epoch 都为 0；本地 commit count 恰为 1。L1 不代表真实音频、视觉、外部副作用或机器人硬件已经通过测试。
+
+## 反例与进阶注入
+
+- 注入乱序 frame，先放入 reorder buffer，超过 watermark 才 quarantine；
+- 测语音 barge-in、WebRTC 断线、工具 timeout 与 session resume；
+- 在真实机器人上增加 E-stop 与独立 safety controller，模型不能成为最后一道物理安全边界。

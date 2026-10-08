@@ -1,353 +1,198 @@
 # Self-Improving Agent：优化、验证与回滚
 
-> **本章核心判断**：自我改进必须建立在 verifier 和 rollback 上。Agent 可以改 prompt、skill 或代码，但不能跳过评估和审批。
+> **本章核心判断**：能够生成 prompt、skill、代码或模型候选，不等于有权修改自己的生产行为。可信自我改进把 proposer 与 evaluator/deployer 分权，用不可变基线、配对评测、canary 和受控回滚限制优化器对目标与证据的操纵。
 
-上一章：多模态、语音、机器人与实时 Agent。本章把前一章已经建立的能力进一步推进到 `Proposal`；下一章将进入：综合案例：AgentOps 平台的端到端闭环。
+上一章提供真实交互反馈；本章把反馈转成候选变更但不放弃治理。下一章把全书的 proposal、authority、effect、evidence 和 recovery 汇合成端到端系统。
 
-![Self-Improving Agent：优化、验证与回滚：系统边界与组件关系](../../assets/diagrams/39-self-improve-architecture.svg)
+![候选生成、独立评测、canary、promotion 与 rollback 控制面](../../assets/diagrams/39-self-improve-architecture.svg)
 
 ## 问题背景与学习目标
 
-自我改进必须建立在 verifier 和 rollback 上。Agent 可以改 prompt、skill 或代码，但不能跳过评估和审批。
+Agent 可从失败轨迹生成新 prompt、工具说明、memory、skill、workflow、test 或代码 patch；更激进时还可生成训练数据和 weight candidate。危险在于同一优化器若能修改目标、grader、holdout 或 deploy pointer，就能通过“让测量更容易”而非真正改善任务。
 
-在本章的 `Proposal` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+完成本章后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“自我改进必须建立在 verifier 和 rollback 上。Agent 可以改 prompt、skill 或代码，但不能跳过评估和审批。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `self-modification requires an external evaluation gate and a reversible rollout` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 39A` / `Lab 39B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 区分 reflection、memory、prompt/skill search、code change 与 weight update；
+- 定义 candidate artifact、lineage、blast radius 和 rollback unit；
+- 使用 paired task、hard safety gate、成本约束与 slice regression；
+- 解释 Goodhart、optimizer overfitting、evaluation hacking 和 selection bias；
+- 设计 shadow/canary/traffic ramp、kill switch 和 durable active pointer；
+- 在真实模型未运行时只报告控制面机制，不编造“自动提升百分比”。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：自我改进只能产生不可变候选；candidate 无权写 evaluator、holdout 或 active version。只有独立 gate 和 canary 均通过，部署控制面才可提升；任何 hard regression 保留 baseline 并回滚。
 
-### Proposal
+**Reflection 是数据，不是真相。** 模型对失败的解释可能有用，但必须与 trace、effect 和 verifier 对齐。把反思直接写入长期 memory 会固化误诊。
 
-**定义。** Agent 对 prompt、skill、retriever、runtime 参数、代码甚至训练配置提出的候选改动，本身没有上线权。
+**Candidate 必须可寻址。** prompt/skill/code/model 都有 digest、parent、producer、输入 evidence、变更 diff 与权限。无法复现的自然语言“我已经改进”不是 artifact。
 
-**系统责任。** Proposal 应包含目标、diff、假设、风险和预期指标，使后续实验可以证伪，而不是 “感觉更好”。
+**Evaluator 必须在优化器控制域之外。** hidden tasks、program verifier、人工抽检和生产 policy 不应被 candidate 修改；否则分数提高无法区分真实能力和测量被攻击。
 
-**失败边界。** 让生产 Agent 直接修改自身并立即生效会形成不可审计反馈环；失败时也无法知道哪次改动造成退化。
+**平均改善不足以发布。** 高风险任务一次 safety regression 不能被大量低风险成功抵消。质量、成本、延迟、安全和公平应采用 hard gates + Pareto/约束，而不是随意加权。
 
-### Experiment
-
-**定义。** 在隔离环境和固定 eval set 上比较候选与 baseline 的受控运行。
-
-**系统责任。** Experiment 应固定数据/环境、重复次数和统计方法，并覆盖正常、历史失败和 adversarial set。
-
-**失败边界。** 只跑候选自己选择的案例会产生选择偏差；在线用户流量也不应成为第一轮安全实验场。
-
-### Verifier
-
-**定义。** 独立决定候选是否满足质量、安全、成本和稳定性门槛的评价面。
-
-**系统责任。** Verifier 与 proposal generator 分离，必要时使用多指标 Pareto/硬门禁，保留人工对高风险变化的 veto。
-
-**失败边界。** self‑judge 容易 reward hacking；只提升平均成功率却恶化高风险 tail 也不能算改进。
-
-### Rollback
-
-**定义。** 在候选上线后快速恢复到已知良好模型/prompt/config/runtime 的能力及其状态兼容方案。
-
-**系统责任。** Rollback 需要版本化 artifact、feature flag、数据 migration 策略和线上监控触发条件。
-
-**失败边界。** 如果改动同时改变不可逆数据/记忆 schema，简单切回旧代码并不能恢复；因此上线前要设计 forward/backward compatibility。
+**Rollback 是预先设计的状态。** baseline 要保持可运行；生产 active pointer 需要持久化 CAS/版本栅栏与传播收敛，state/schema/effect 也要兼容。删除旧 artifact 后再谈回滚只是愿望。本章 `CanaryRollout` 只演示单进程内存状态迁移，不能证明 crash 后恢复、多实例原子切换或真实流量回滚。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：self-modification requires an external evaluation gate and a reversible rollout
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `让 Agent 直接修改生产 prompt` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “让 Agent 直接修改生产 prompt”、“没有对照组就发布”、“成功样本过拟合” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Proposal** 与 **Experiment** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“让 Agent 直接修改生产 prompt”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Proposal 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Experiment 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `改动生成 patch artifact`、`保留改动理由和结果` 以及对不变量 **self-modification requires an external evaluation gate and a reversible rollout** 的检查。
-
-**What if。** 一旦“没有对照组就发布”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+设基线 $b$ 与候选 $c$ 在同一任务集 $T$ 上产生配对结果：
 
 $$
-Accept(c)\iff \Delta Quality>\tau_q\land \Delta Risk\le\tau_r\land \Delta Cost\le\tau_c
+\Delta_q=\frac{1}{|T|}\sum_{t\in T}(q(c,t)-q(b,t)),\qquad
+\rho_c=\frac{Cost(c,T)}{Cost(b,T)}
 $$
 
-Self-Improving Agent 必须把候选改进生成器与冻结的接受 verifier 分开，避免自评自改形成正反馈失控。
+最小 gate 可写为：
 
-**可证伪假设。** 冻结 verifier + canary/rollback 能显著降低自我优化中的 reward hacking 和 silent regression。
+$$
+Eligible(c)=\Delta_q>\delta\land \rho_c\le\rho_{max}\land Safety(c)\preceq Safety(b)\land SlicesOK(c)
+$$
 
-**建议测量。** accepted improvement rate、regression escape、rollback rate、verifier disagreement。
+小样本点估计不应直接 promotion；真实系统使用重复 run、置信区间/贝叶斯后验或 sequential testing，并控制反复试候选带来的 multiple-comparison/leaderboard overfitting。
+
+Goodhart 定律在这里表现为：优化器知道 metric 后，可能增加讨好 judge 的冗长文本、避开难任务、修改测试、隐藏成本或把危险 effect 推给未观测通道。防线是多源 evidence、不可写 evaluator、environment query、随机 hidden tasks 和生产 incident feedback。
 
 ## 关键机制与执行流程
 
-![Self-Improving Agent：优化、验证与回滚：正常路径与故障恢复流程](../../assets/diagrams/39-self-improve-flow.svg)
+![从 incident/trajectory 到 candidate、离线门禁、canary 和受控回滚](../../assets/diagrams/39-self-improve-flow.svg)
 
-**Step 1 — 改动生成 patch artifact。** `改动生成 patch artifact` 负责形成后续决策的输入。需要同时保存来源、版本/时间与必要的关联标识，避免把“当前看到的数据”误当成永远有效的事实。进入下一阶段前，对结构、权限和来源做最小验证，使 `Proposal` 的状态能够在 trace 中被复现。
-
-**Step 2 — 小流量/离线 eval。** `小流量/离线 eval` 是“Self-Improving Agent：优化、验证与回滚”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Experiment` 是否仍满足 **self-modification requires an external evaluation gate and a reversible rollout**。
-
-**Step 3 — 失败自动回滚。** `失败自动回滚` 是“Self-Improving Agent：优化、验证与回滚”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Verifier` 是否仍满足 **self-modification requires an external evaluation gate and a reversible rollout**。
-
-**Step 4 — 保留改动理由和结果。** `保留改动理由和结果` 是“Self-Improving Agent：优化、验证与回滚”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Rollback` 是否仍满足 **self-modification requires an external evaluation gate and a reversible rollout**。
-
-在本章的 `Proposal` 场景中，**最后一步 — 验证。** verifier 针对 `Rollback` 检查本章不变量 **self-modification requires an external evaluation gate and a reversible rollout**。如果“让 Agent 直接修改生产 prompt”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **改动生成 patch artifact → 小流量/离线 eval → 失败自动回滚 → 保留改动理由和结果** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“让 Agent 直接修改生产 prompt”尤其要检查动作前后的证据是否足以闭合不变量 **self-modification requires an external evaluation gate and a reversible rollout**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Proposal` 有关的纯计算状态通常可以重算；一旦 `小流量/离线 eval` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **self-modification requires an external evaluation gate and a reversible rollout**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+1. **触发改进**：incident、失败 taxonomy、成本或人工 override 形成 problem statement，不把模型自述当根因；
+2. **冻结基线**：保存 active artifact、task/eval manifests、环境与效果语义；
+3. **生成候选**：proposer 在隔离 workspace 只写 candidate，不得修改 gate/holdout；
+4. **静态审计**：schema、权限、secret、diff、dependency 和可回滚性；
+5. **配对离线评测**：同任务/环境/预算比较 baseline/candidate，hard safety 先行；
+6. **shadow/canary**：先禁止或限制 effect，逐步引入真实分布；
+7. **独立判定**：verifier、SLO 和 policy 决定 promote/rollback/quarantine；
+8. **固化学习**：失败进入 regression 与 incident knowledge，但与训练 holdout 隔离。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Self-Improving Agent：优化、验证与回滚')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('self-improve', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+`ImprovementGate`强制 baseline/candidate 覆盖同一任务，安全是 hard gate：
 
 ```python
-def self_improve(fault=False):
- baseline={'success':8,'cost':10}; candidate={'success':9 if not fault else 7,'cost':11}
- accepted=candidate['success']>baseline['success'] and candidate['cost']<=baseline['cost']*1.2
- action='promote' if accepted else 'rollback'
- return _ok('self-improve',fault,{'baseline':baseline,'candidate':candidate,'action':action},'self-modification requires an external evaluation gate and a reversible rollout',action=='promote' if not fault else action=='rollback')
+decision = ImprovementGate().compare(
+    baseline_results,
+    candidate_results,
+    max_cost_ratio=1.2,
+)
+assert decision.checks["paired_tasks"]
+assert decision.checks["no_high_risk_regression"]
+assert decision.eligible
 ```
 
+`CanaryRollout`不会覆盖 baseline；promotion/rollback 只改变 active pointer：
 
-### 简化假设与不能省略的机制
+```python
+rollout = CanaryRollout("policy-v1")
+rollout.start("policy-v2", decision)
+action = rollout.finish(verifier_passed=False, safety_violations=1)
 
+assert action == "ROLLED_BACK"
+assert rollout.active_version == "policy-v1"
+assert rollout.history[-1] == "ROLLED_BACK:policy-v2"
+```
+
+真实 proposer 可用本地小模型或 OpenAI 等远程模型生成 prompt/patch，但它的输出必须作为 untrusted candidate 保存；`OPENAI_API_KEY` 由环境注入且不写入 candidate、trace 或日志。是否改善只能由真实 run artifacts 决定。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| DeepSeek Harness | `@deepseek-ai/dsh 0.1.2-rc.1 reproducibility pin` | 先读 docs/architecture.md，再看 service/dependency/lifecycle；关注 Cordis context、service 注入与 plugin 可逆 effect，而不是只看 UI。 | `docs/architecture.md`<br>`docs/user/develop/framework/service.md` | [官方来源](https://github.com/deepseek-ai/deepseek-harness) |
-| Pi Coding Agent | `@earendil-works/pi-coding-agent 0.85.1` | 把 session tree、branching、compaction、extensions/skills 看成极简 coding harness 的核心；同时注意 2026 年包名迁移到 @earendil-works。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/earendil-works/pi) |
-| Anthropic: Demystifying evals for AI agents | `2026-01-09` | Agent eval 需要 task/environment/trajectory/grader 共同设计。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) |
+| 机制 | 更新对象 | 反馈来源 | 主要风险 |
+|---|---|---|---|
+| Reflexion | episodic text memory | 环境/自我反馈 | 错误反思固化、无真实 verifier |
+| Voyager skill library | executable skills | 环境进展/探索 | skill 权限与累积污染 |
+| prompt/program search | prompt/workflow/code | eval score | 对 eval 过拟合、test hacking |
+| post-training | model weights | demo/preference/reward | 回滚成本、分布外行为 |
+| production canary | active version | 真实流量/incident | 用户暴露、统计功效与安全 |
 
-### 源码阅读方法
-
-源码阅读以 **DeepSeek Harness** 为第一参照，并只追与“Self-Improving Agent：优化、验证与回滚”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“让 Agent 直接修改生产 prompt”、如何在“没有对照组就发布”后恢复，以及如何让 `保留改动理由和结果` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+[Reflexion](https://arxiv.org/abs/2303.11366)与 [Voyager](https://arxiv.org/abs/2305.16291)展示语言反馈/技能积累的可能性；工程系统必须额外提供身份、版本、effect、评测隔离和 rollback。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 更新层 | 优点 | 局限 | 回滚单位 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| DeepSeek Harness | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
-| Pi Coding Agent | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
-| Anthropic: Demystifying evals for AI agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| session reflection | 快、局部 | 易把误诊带入后续 | session memory |
+| retrieval memory | 可编辑、可审计 | 检索污染/陈旧 | record/index version |
+| prompt/config | 成本低、可 diff | 深层能力有限 | prompt/config digest |
+| skill/workflow | 可组合、可测试 | 权限与依赖复杂 | manifest + code artifact |
+| code/runtime | 能修系统机制 | 软件供应链风险 | image/revision |
+| model weights | 行为改变广 | 成本高、解释/回滚难 | model snapshot |
 
+选择最小能解决根因的层。若问题是 effect recovery，训练模型“更谨慎”不如修状态机；若问题是领域语言理解，硬编码更多 workflow 也未必合适。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Self-Improving Agent：优化、验证与回滚”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Self-Improving Agent：优化、验证与回滚”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 39A — 正常路径
+### Lab 39A — 配对离线 gate 后 promotion
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch39_self_improve.py
+PYTHONPATH=src uv run python examples/chapters/ch39_self_improve.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::self_improve`
-- `examples/chapters/ch39_self_improve.py::main`
-
-**本发布包实际输出：**
+**实际输出。** 配对评测满足成功率、安全与成本门限，候选只在 canary 验证后成为 active version：
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "self-modification requires an external evaluation gate and a reversible rollout", "invariant_holds": true, "observation": {"action": "promote", "baseline": {"cost": 10, "success": 8}, "candidate": {"cost": 11, "success": 9}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "self-improve", "system_detected": false}
+{"offline_gate":{"status":"CANARY_ELIGIBLE","success_delta":0.25,"cost_ratio":1.025,"eligible":true},"canary_action":"PROMOTED","active_version":"policy-v2","evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 39A](../../../labs/core/lab-39A-self-improve.md)。
-
-### Lab 39B — 故障注入
+### Lab 39B — Canary 安全回归并回滚
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch39_self_improve.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch39_self_improve.py --fault
 ```
 
-**本发布包实际输出：**
+**实际输出。** 候选离线合格，但 canary 的独立 verifier 发现安全回归，active pointer 原子回到基线：
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "self-modification requires an external evaluation gate and a reversible rollout", "invariant_holds": true, "observation": {"action": "rollback", "baseline": {"cost": 10, "success": 8}, "candidate": {"cost": 11, "success": 7}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "self-improve", "system_detected": true}
+{"offline_gate":{"status":"CANARY_ELIGIBLE","eligible":true},"canary_action":"ROLLED_BACK","active_version":"policy-v1","contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L3_CONTAINED**：被测组件检测并 fail-closed/约束了故障，但不声明已恢复业务结果。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 39B](../../../labs/core/lab-39B-self-improve-fault.md)。
-
-### 观察与证据
-
+**关键断点与验收。** 核对 paired task、hard safety、cost ratio、baseline addressability 与 active pointer。B 的重点是“离线通过但线上阻断”，不能把 rollback 写成候选根本没部署。完整步骤见 [Lab 39A](../../../labs/core/lab-39A-self-improve.md) 与 [Lab 39B](../../../labs/core/lab-39B-self-improve-fault.md)。
 
 ## 工程场景与系统设计
 
-本章沿用第 35 章多租户 API 场景，重点规定 self-improvement 只能生成候选版本，不能直接绕过发布 gate、租户 policy 或每月故障演练。
+以 coding Agent 为例：incident 指出 patch 成功但误改测试；proposer 生成 harness/prompt candidate；静态 gate 禁止写 hidden tests；离线在固定 repo/container 上配对运行；canary 只对低风险 repo 提建议、不自动 merge；human/program verifier 通过后逐步扩大。
 
-
-### 上线前必须补齐
-
-- 围绕 **Self-Improving Agent** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `自我改进必须有独立 verifier、回滚和变更隔离。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+控制面需要 candidate registry、experiment assignment、immutable eval manifest、rollout lease、active pointer、kill switch 和 audit。优化服务不持有 production deploy credential；promotion receipt 由独立身份签发。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
-
-- **让 Agent 直接修改生产 prompt**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **没有对照组就发布**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **成功样本过拟合**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+- **metric gaming**：输出更像 judge 喜欢而环境未改善；回到 effect/outcome verifier；
+- **eval overfit**：反复选择候选耗尽 holdout；设置 hidden final set、时间切分与试验预算；
+- **candidate 改 grader**：workspace 权限过大；grader/test 从只读 digest-lock 来源加载；
+- **均值掩盖 slice**：总体提高、高风险退化；检查 tenant/language/risk/tool slices；
+- **canary 污染**：同一用户同时经历两版本共享 memory/cache；按 unit 隔离；
+- **rollback 不完整**：prompt 回退但 schema/checkpoint 不兼容；先验证 backward/forward compatibility；
+- **自动学习攻击**：恶意用户构造反馈进入 memory/training；provenance、信任分层和人工审核。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+指标包括 candidate throughput、eval cost、verified uplift、confidence、safety escapes、rollback latency、exposure count、version skew 和 incident recurrence。`cost_ratio` 应包含模型、工具、人工、沙箱和失败恢复，不只 token。
 
-- `API p95/p99`
-- `tenant isolation violations`
-- `queue depth`
-- `RPO/RTO rehearsal`
-- `deployment rollback time`
-- `cost per tenant/run`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Experiment` 的生命周期时，要重新验证 **self-modification requires an external evaluation gate and a reversible rollout**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “让 Agent 直接修改生产 prompt”、“没有对照组就发布”、“成功样本过拟合”：只有正常路径与对应 fault path 都保持 **self-modification requires an external evaluation gate and a reversible rollout**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+持续优化要控制探索预算和统计误报：预注册 primary metrics/stop rule，保留并报告失败 candidate；不要无限尝试直到偶然超过阈值。高风险系统宁可慢 promotion，也不能让自动优化器扩大权限。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 教学服务不等于生产认证系统，HA、secret broker、审计保留等需额外实现
-- 多租户必须在存储/缓存/日志/队列每层强制 tenant boundary
-- 部署成功不代表恢复成功，需定期做故障演练
-- post-training 会改变行为分布，必须用独立 eval gate 防回归
+Core Lab 的四个任务只演示 gate 和 rollback，不能支持 25% 改善的总体结论；`success_delta=0.25` 是固定 fixture 算术。真实结论至少需要足够样本、重复运行、置信区间、slice 和实际 provider artifacts。
 
-选择方案时要回到本章边界：如果业务不能接受“让 Agent 直接修改生产 prompt”，就必须为 `Proposal` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Experiment` 决策交给模型，但要用 `保留改动理由和结果` 保持结果可验证。**DeepSeek Harness** 与 **Pi Coding Agent** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Self-improvement 只能在受控优化环内成立：候选变更必须可版本化、可评测、可回滚。让 Agent 直接修改自己的 policy/tool 权限而没有独立 gate，会把局部 reward 改进转化成治理风险。
+Rollback 也不自动补偿候选已产生的外部 effect。active pointer 回到 baseline 后，仍要处理支付、消息、代码 merge 或机器人动作的 UNKNOWN/compensation。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+截至 2026-09-11，自我改进从 verbal reflection、skill accumulation 扩展到 agent-generated data、prompt/program search、自动研究与可验证 RL。更强 proposer 提高候选生成速度，也加剧 evaluator 被利用、试验多重性、权限扩大和长时目标漂移。
 
-- **[Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366)**：通过外部反馈与语言化反思把失败经验写入后续尝试。
-- **[Language Agent Tree Search](https://proceedings.mlr.press/v235/zhou24r.html)**：ICML 2024；把 tree search、环境反馈、反思和值函数组合到 Agent 决策。
-- **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)**（@deepseek-ai/dsh 0.1.2-rc.1 reproducibility pin）：Developer preview；Everything is a Plugin，基于 Cordis context/service/lifecycle。
-- **[Pi Coding Agent](https://github.com/earendil-works/pi)**（@earendil-works/pi-coding-agent 0.85.1）：极简 terminal coding harness；extensions、skills、sessions、branching/compaction；旧 @mariozechner 包已弃用。
+关键开放问题是：可扩展监督在 optimizer 更强时是否仍稳健；如何证明 candidate 没有通过侧信道访问 holdout；如何将形式验证/程序 verifier 与开放任务质量组合；如何对持续更新系统建立可追责版本边界；怎样公开真实失败而保护用户数据。
 
+### 深度审计与研究证据链
 
-### 截至 2026-09-11 的研究更新
-
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- Anthropic: Automated researchers can reliably mitigate alignment failures（2026‑08‑28）：automated alignment research, scalable oversight and self‑improvement boundaries。
-- OpenAI: Research acceleration —the view inside OpenAI（2026‑09‑06）：parallel coding agents, research task horizons, human intervention and research velocity。
-
-**本章吸收的变化。** Self‑improving Agent 需要把 candidate generator 与 acceptance verifier 分离。能提出自修改不等于有权证明自己变好。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Proposal`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **self-modification requires an external evaluation gate and a reversible rollout** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“让 Agent 直接修改生产 prompt”和“没有对照组就发布”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Self-Improving Agent** 的可验证性。Reflexion、Voyager 与 self-evolving agent 研究证明反馈有价值，但生产系统必须防止自修改破坏 harness。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Proposal` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“让 Agent 直接修改生产 prompt”与“没有对照组就发布”同时发生时，**DeepSeek Harness** 与 **Pi Coding Agent** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Experiment` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“成功样本过拟合”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Self-Improving Agent
-
-本章重新审计后的核心结论是：**自我改进必须有独立 verifier、回滚和变更隔离。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[PaperBench](https://openai.com/index/paperbench/)**：把论文复现拆成细粒度可评分任务，强调 rubric/grader。
-- **[AgentDojo](https://arxiv.org/abs/2406.13352)**：用不可信工具返回内容测试 prompt injection 攻防。
-- **[Agent Security Bench](https://arxiv.org/abs/2410.02644)**：覆盖多工具、多场景、多攻击/防御的 Agent 安全评测。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。Pi skills/extensions、DeepSeek Harness plugins、LangGraph eval gate 可对照。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Self-Improving Agent 的观测、评测、安全或生产控制面不变量；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章不把“模型反思了”写成“系统学会了”。可信链条是 incident/trace → candidate digest → 独立 paired eval → canary observations → promotion/rollback receipt。任何缺环只能降低 claim，不能用流畅解释补齐。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+自我改进的系统本质是受限优化：提案自由，判定独立，发布渐进，回滚预置，证据不可由候选自写。改进速度越快，控制面越重要。
 
-1. 本章不变量是：**self-modification requires an external evaluation gate and a reversible rollout**；
-2. `Proposal` 必须是可观察软件边界，而不是 prompt 约定；
-3. `改动生成 patch artifact` 与 `保留改动理由和结果` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 M](../appendix-m-part7-solutions.html#ch39)）：
 
-### 常见误区
-
-- 让 Agent 直接修改生产 prompt
-- 没有对照组就发布
-- 成功样本过拟合
-
-### 思考题与实践
-
-- **Why：** 为什么 `Proposal` 不能只靠模型“记住”？
-- **What if：** 如果在 `改动生成 patch artifact` 与 `保留改动理由和结果` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch39_self_improve.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **综合案例：AgentOps 平台的端到端闭环**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么 reflection 只能是候选 evidence，不能直接成为 truth？
+2. 配对评测比独立均值比较多控制了什么？
+3. 为什么 hard safety regression 不能被平均成功率抵消？
+4. Canary rollback 后还可能剩下哪些未解决状态？
+5. 如何防止自动优化器通过反复试验过拟合 holdout？

@@ -1,353 +1,210 @@
 # Agent Evaluation：从最终答案到轨迹验证
 
-> **本章核心判断**：Agent eval 要评估任务、环境、工具轨迹、artifact 和最终结果；只看最后回答无法说明系统是否可靠。
+> **本章核心判断**：Agent 的“成功”不是模型说完成，也不是答案看起来正确，而是版本化任务、可观察环境、完整 trajectory、允许的 effect、资源预算与独立 verifier 共同闭合后的系统判定。评测本身是生产控制面，不是演示结束后的打分脚本。
 
-上一章：Multi-Agent 协作：分工、隔离、调度与成本。本章把前一章已经建立的能力进一步推进到 `Task spec`；下一章将进入：SWE-bench、OSWorld、PaperBench 与 MLE-bench。
+上一章建立了多 Agent 的 work order、权限、预算与 join；本章回答这些系统是否真的完成任务。下一章再把单任务判定提升为可比较的 benchmark。
 
-![Agent Evaluation：从最终答案到轨迹验证：系统边界与组件关系](../../assets/diagrams/29-evaluation-architecture.svg)
+![Agent Evaluation 的任务、执行、证据与独立判定边界](../../assets/diagrams/29-evaluation-architecture.svg)
 
 ## 问题背景与学习目标
 
-Agent eval 要评估任务、环境、工具轨迹、artifact 和最终结果；只看最后回答无法说明系统是否可靠。
+普通问答可以对最终字符串做 exact match；Agent 会调用工具、修改环境、跨越多轮、产生不可逆副作用，还可能在错误路径上“碰巧得到正确答案”。因此以下四个 run 不能视为等价：答案正确但删除了不该删除的数据；答案正确但用了十倍预算；答案错误但模型自信声明完成；答案和 effect 都正确，但 evaluator 使用了被污染的环境。
 
-在本章的 `Task spec` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章完成后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Agent eval 要评估任务、环境、工具轨迹、artifact 和最终结果；只看最后回答无法说明系统是否可靠。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `a verifier must evaluate observable task properties independently of the agent narrative` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 29A` / `Lab 29B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 把 task spec 编译为可执行 checks，而不是主观 rubric；
+- 分离 Agent claim、environment observation、verifier verdict 与 release decision；
+- 设计 outcome、trajectory、effect、budget、safety 多层评测；
+- 解释 LLM-as-judge 的适用范围、相关偏差与校准方法；
+- 用真实 SQLite ledger 实现可重开、可审计的 promotion gate；
+- 为本地小模型和 OpenAI 等远程模型复用同一 task/verifier，避免 provider 变化破坏比较。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：只有读取 durable observation 的独立 verifier 可以授权 promotion；Agent 的成功声明没有判定权。
 
-### Task spec
+**Task spec 是实验的因变量边界。** 它至少固定输入、初始环境、允许能力、最大预算、成功/失败条件、verifier 版本和数据截止时间。若 prompt、测试、依赖或外部账户状态在两次 run 间改变，比较对象已经不同。
 
-**定义。** 描述输入、初始环境、允许能力、约束与成功条件的可执行任务定义。
+**Trajectory 是一级结果。** 它包括 observation、decision、tool intent/result、checkpoint、approval、effect receipt 与最终 artifact。最终答案只是 trajectory 的一个投影。评测既要问“结果对不对”，也要问“用了什么权限、是否越界、是否可恢复”。
 
-**系统责任。** 好的 task spec 让模型/框架变化后仍能比较结果，并把业务目标转成 verifier 可以检查的 contract。
+**Agent claim 是被测输出，不是证据根。** `I succeeded`、`tests passed` 或 `no side effects` 都必须由环境重新观察。允许被测模型直接写 verdict，相当于让程序自己审批上线。
 
-**失败边界。** spec 模糊会让 evaluator 在事后凭印象给分；隐藏关键约束则测试的是猜测而非能力。
+**Verifier 是有版本、有盲区的软件组件。** 程序 test、schema、数据库 query、环境 diff、人类 rubric、LLM judge 各自覆盖不同性质；应输出逐项 checks 与原始证据，而不是只有一个总分。
 
-### Trajectory
-
-**定义。** 从 observation、decision、tool call、state transition 到 effect 的完整时间序列，是 Agent 行为的一级评测对象。
-
-**系统责任。** Trajectory 允许定位失败发生在规划、工具选择、执行、恢复还是验证，并支持成本/风险/人工介入分析。
-
-**失败边界。** 只评分最终答案会漏掉危险但“碰巧成功”的路径，也无法区分高成本试错与稳定策略。
-
-### Verifier
-
-**定义。** 把 task spec 映射成程序、环境检查、人类 rubric 或组合判据的独立评价组件。
-
-**系统责任。** Verifier 应尽量依赖可观察外部事实，并记录自身版本、误差与 blind spot；高风险任务要使用多层 verifier。
-
-**失败边界。** LLM‑as‑judge 若与被测模型共享偏差，或 judge 看不到真实环境 effect，可能给流畅但错误的轨迹高分。
-
-### Regression
-
-**定义。** 把历史失败、关键能力和安全事件固定为可重复 eval set，在模型、prompt、tool 或 runtime 变化后持续重跑。
-
-**系统责任。** Regression 防止“平均 benchmark 提高却把关键业务场景改坏”，并把线上 incident 反馈回离线门禁。
-
-**失败边界。** 只追新 benchmark 而不保留旧失败，会出现能力漂移；eval 数据污染又会让分数失去诊断意义。
+**Promotion 是独立状态转移。** `FINISHED` 只表示执行终止，`VERIFIED` 表示 checks 闭合，`ELIGIBLE` 才表示可进入回归基线或发布。失败 run 应进入 `QUARANTINED`，而不是被删除到 selection bias 看不见。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：a verifier must evaluate observable task properties independently of the agent narrative
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `用 LLM judge 替代全部 verifier` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “用 LLM judge 替代全部 verifier”、“没有环境 reset”、“只展示成功样本” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Task spec** 与 **Trajectory** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“用 LLM judge 替代全部 verifier”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Task spec 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Trajectory 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `golden dataset 版本化`、`比较成功率/成本/步数` 以及对不变量 **a verifier must evaluate observable task properties independently of the agent narrative** 的检查。
-
-**What if。** 一旦“没有环境 reset”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+将 task $t$、trajectory $\tau$、环境终态 $e'$、artifact $a$、资源 $c$ 与安全 observation $s$ 输入 verifier：
 
 $$
-Score=V(Task,Trajectory,Environment,Artifact,Cost,Risk)
+V_v(t,\tau,e',a,c,s)\rightarrow (checks, verdict, evidence)
 $$
 
-Agent Evaluation 应验证任务、轨迹、环境、artifact、成本和风险，而不只比较最终文本。
+其中 $v$ 是 verifier 版本。一个最小的可信成功条件是：
 
-**可证伪假设。** 只评 final answer 会高估包含 unsafe effect 或不可恢复步骤的轨迹。
+$$
+Success = Outcome \land AllowedEffects \land Budget \land TraceComplete \land Safety
+$$
 
-**建议测量。** verified task success、trajectory validity、unsafe-success rate、cost-adjusted score。
+这不是所有维度求平均。高风险 effect 越权不能被优美答案抵消，因此许多 checks 是 conjunction 或 hard gate。软质量维度才适合打分。
+
+对 $n$ 次独立或近似独立运行，点估计 $\hat p=k/n$ 不能表达小样本不确定性，应同时报告区间、seed 分布和失败 taxonomy。模型调用具有随机性与 provider 漂移，单次成功只能形成 case evidence，不能推出总体成功率。
+
+LLM-as-judge 适合开放文本的相对质量、rubric 辅助和错误聚类；不适合独占判定权限、数据库 effect、代码 tests、引用真实性或跨租户访问。Judge 应通过 human/program anchors 标定，并测量 position bias、verbosity bias、自偏好、prompt sensitivity 与被测模型相关性。
 
 ## 关键机制与执行流程
 
-![Agent Evaluation：从最终答案到轨迹验证：正常路径与故障恢复流程](../../assets/diagrams/29-evaluation-flow.svg)
+![从任务注册、trajectory 留存到独立 verdict 和发布门禁](../../assets/diagrams/29-evaluation-flow.svg)
 
-**Step 1 — golden dataset 版本化。** `golden dataset 版本化` 是“Agent Evaluation：从最终答案到轨迹验证”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Task spec` 是否仍满足 **a verifier must evaluate observable task properties independently of the agent narrative**。
+1. **注册任务**：canonical serialize task spec，计算 digest；同名不同版本不得覆盖历史含义；
+2. **建立 run**：绑定 task digest、模型/provider、runtime、环境 snapshot 和随机设置；
+3. **记录 observations**：每条 observation 带 run/seq/kind，不从最终回答反推中间事实；
+4. **终止执行**：写入 Agent claim、final artifact、observed effects 与成本，状态仅到 `AWAITING_VERIFICATION`；
+5. **独立验证**：verifier 从 ledger 与环境读取事实，逐项产生 checks；
+6. **原子判定**：checks 与 `ELIGIBLE/QUARANTINED` 在同一 transaction 写入；
+7. **回归门禁**：只聚合相同 task/verifier/environment identity 下的 verified run，失败同样永久留存。
 
-**Step 2 — 每轮 trace 留存。** `每轮 trace 留存` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
-
-**Step 3 — verifier 独立执行。** 这一阶段可能改变系统或外部环境，因此 `verifier 独立执行` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **a verifier must evaluate observable task properties independently of the agent narrative**。
-
-**Step 4 — 比较成功率/成本/步数。** `比较成功率/成本/步数` 不读取模型的自我评价，而读取 `Regression` 对应的 artifact、状态或环境事实。验证器应返回可机读结果，并在证据不足时保留失败/UNKNOWN，而不是为了让流程继续而猜测。这样才能把本章不变量 **a verifier must evaluate observable task properties independently of the agent narrative** 变成真正的验收条件。
-
-在本章的 `Task spec` 场景中，**最后一步 — 验证。** verifier 针对 `Regression` 检查本章不变量 **a verifier must evaluate observable task properties independently of the agent narrative**。如果“用 LLM judge 替代全部 verifier”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **golden dataset 版本化 → 每轮 trace 留存 → verifier 独立执行 → 比较成功率/成本/步数** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“用 LLM judge 替代全部 verifier”尤其要检查动作前后的证据是否足以闭合不变量 **a verifier must evaluate observable task properties independently of the agent narrative**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Task spec` 有关的纯计算状态通常可以重算；一旦 `每轮 trace 留存` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **a verifier must evaluate observable task properties independently of the agent narrative**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+关键崩溃窗口在“环境 effect 已发生、observation 尚未持久化”和“verdict 已计算、promotion 尚未提交”。前者需要第 33 章的 reconciliation；后者要求 verdict 与状态更新原子化或幂等重算。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='Agent Evaluation：从最终答案到轨迹验证')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('evaluation', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+本章 `EvaluationLedger` 使用 SQLite 分开保存 tasks、runs、observations 与 verdicts。Task 的 digest 包含允许 effect 与步骤预算：
 
 ```python
-def evaluation(fault=False):
- expected={'status':'FINISHED','answer':'42'}; actual={'status':'FINISHED','answer':'42' if not fault else '41'}
- checks={'status':actual['status']==expected['status'],'answer':actual['answer']==expected['answer']}; passed=all(checks.values())
- return _ok('evaluation',fault,{'expected':expected,'actual':actual,'checks':checks},'a verifier must evaluate observable task properties independently of the agent narrative',passed if not fault else not passed)
+task = EvaluationTask(
+    task_id="invoice-total-017",
+    version="v1",
+    expected_answer="42",
+    allowed_effects=("calculator.read",),
+    max_steps=4,
+)
+task_digest = ledger.register(task)
+ledger.begin("run-29", task_digest)
+ledger.observe("run-29", "tool_result", {"tool": "calculator", "value": 42})
 ```
 
+执行器只能提交 claim 与事实候选，不能提交 verdict：
 
-### 简化假设与不能省略的机制
+```python
+ledger.finish(
+    "run-29",
+    agent_claim="PASS",
+    final_answer="42",
+    observed_effects=["calculator.read"],
+    step_count=2,
+)
+verdict = ledger.verify("run-29")
+assert verdict.promotion_status == "ELIGIBLE"
+```
 
+`verify()` 重新读取 task spec，做 constant-time answer comparison、effect subset、budget 和 trajectory presence 检查。故障场景即使 `agent_claim=PASS`，错误答案与 `vendor.delete` 仍使状态进入 `QUARANTINED`。实现位于 `src/agentlab/assurance_system.py`，测试位于 `tests/test_assurance_system.py`。
+
+真实模型接入应放在 `finish()` 之前。OpenAI Python client 可由 `OpenAI()` 从 `OPENAI_API_KEY` 环境变量获得凭据，项目另用如 `AGENTLAB_MODEL` 选择模型；本地 Ollama、llama.cpp、vLLM 等可通过兼容 endpoint 提供候选输出。核心 verifier 无需 key，并且 key 不进入 prompt、trace、SQLite 或 artifact。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| Anthropic: Demystifying evals for AI agents | `2026-01-09` | Agent eval 需要 task/environment/trajectory/grader 共同设计。 | 以官方 docs/release/source tree 为准 | [官方来源](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) |
-| Google Agent Development Kit | `v2.1.0 @ 6d15e19` | 比较 LlmAgent 与 Sequential/Parallel/Loop/graph workflow，把 session、sandbox、telemetry/evaluation 放在同一 runtime 视角下。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/google/adk-python) |
-| SWE-bench | `benchmark source observed 2026-09-09` | 真实 GitHub issue + repository snapshot + Docker/test verifier。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/swe-bench/SWE-bench) |
+| 对象 | 主要贡献 | 审计重点 | 不能替代什么 |
+|---|---|---|---|
+| OpenAI Evals / Agents SDK tracing | 模型/Agent 运行、trace 与评测集成 | run identity、tool/effect observation、grader 输入 | 业务数据库与外部 effect verifier |
+| Google ADK evaluation | session/trajectory 与 Agent/workflow 评估 | state snapshot、tool calls、criteria 版本 | 环境 reset 与跨 provider 可比性 |
+| LangSmith / LangGraph eval 工作流 | dataset、experiment、trace、human/automated evaluator | dataset revision、checkpoint、judge calibration | 自动证明安全与无副作用 |
+| SWE-bench harness | 真实 repo snapshot、patch 与 tests | instance/base commit、container、test patch | 通用浏览器/业务 Agent 质量 |
+| 人类专家双盲审阅 | 复杂开放质量与社会规范 | rubric、盲法、一致性、仲裁 | 大规模低成本 deterministic gate |
 
-### 源码阅读方法
-
-源码阅读以 **Anthropic: Demystifying evals for AI agents** 为第一参照，并只追与“Agent Evaluation：从最终答案到轨迹验证”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“用 LLM judge 替代全部 verifier”、如何在“没有环境 reset”后恢复，以及如何让 `比较成功率/成本/步数` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+源码阅读顺序应是：task/dataset schema → environment construction/reset → trajectory capture → evaluator input → verdict persistence → release gate。只读“如何调用 judge”看不到评测最重要的因果边界。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| Verifier | 强项 | 典型盲区 | 合理角色 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| Anthropic: Demystifying evals for AI agents | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| Google Agent Development Kit | 状态/工作流抽象成熟，适合长任务与治理 | 框架状态不能自动解决外部副作用不确定性 | 企业 workflow、HITL、durable orchestration |
-| SWE-bench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| Exact/schema | 确定、廉价、可回归 | 只覆盖已编码性质 | 所有结构化硬约束 |
+| Unit/integration test | 观察真实程序行为 | tests 可能不足或被污染 | coding/data workflow 核心 gate |
+| Environment/effect query | 判断外部世界事实 | provider 可能最终一致 | 支付、部署、消息、数据库 |
+| LLM judge | 开放语义、可扩展 rubric | 相关偏差、提示敏感、不可作真值 | 辅助质量分与错误聚类 |
+| Human review | 高语境、高风险判断 | 成本、延迟、一致性 | 高风险样本与校准集 |
 
+最佳实践通常是 hard gates + calibrated soft score，而非单一万能 judge。发布阈值还应按任务风险分层：低风险摘要允许软评分，高风险写操作要求所有确定性 checks 通过并可能加入人工批准。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“Agent Evaluation：从最终答案到轨迹验证”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“Agent Evaluation：从最终答案到轨迹验证”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 29A — 正常路径
+### Lab 29A — 独立判定正常路径
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch29_evaluation.py
+PYTHONPATH=src uv run python examples/chapters/ch29_evaluation.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::evaluation`
-- `examples/chapters/ch29_evaluation.py::main`
-
-**本发布包实际输出：**
+实际输出的核心字段：
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a verifier must evaluate observable task properties independently of the agent narrative", "invariant_holds": true, "observation": {"actual": {"answer": "42", "status": "FINISHED"}, "checks": {"answer": true, "status": true}, "expected": {"answer": "42", "status": "FINISHED"}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "evaluation", "system_detected": false}
+{"agent_claim":"PASS","checks":{"answer":true,"budget":true,"effects":true,"trajectory_present":true},"promotion_status":"ELIGIBLE","verifier_passed":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 29A](../../../labs/core/lab-29A-evaluation.md)。
-
-### Lab 29B — 故障注入
+### Lab 29B — 虚假成功声明与越权 effect
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch29_evaluation.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch29_evaluation.py --fault
 ```
 
-**本发布包实际输出：**
+实际输出的核心字段：
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "a verifier must evaluate observable task properties independently of the agent narrative", "invariant_holds": false, "observation": {"actual": {"answer": "41", "status": "FINISHED"}, "checks": {"answer": false, "status": true}, "expected": {"answer": "42", "status": "FINISHED"}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "evaluation", "system_detected": false}
+{"agent_claim":"PASS","checks":{"answer":false,"budget":true,"effects":false,"trajectory_present":true},"promotion_status":"QUARANTINED","verifier_passed":false,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 29B](../../../labs/core/lab-29B-evaluation-fault.md)。
-
-### 观察与证据
-
+**关键断点与验收。** 在 `finish()` 后确认状态不是 success；在 `verify()` 查看四项 checks；在 verdict transaction 后确认失败 run 永久为 `QUARANTINED`。A 的验收是四项全真；B 的验收是 Agent 仍声称 PASS，但发布被系统阻断。完整步骤见 [Lab 29A](../../../labs/core/lab-29A-evaluation.md) 与 [Lab 29B](../../../labs/core/lab-29B-evaluation-fault.md)。
 
 ## 工程场景与系统设计
 
-**教学工程设计输入（不是公开云厂商性能数据）：** AgentOps 平台每天执行 5 万个任务，需要追踪成功率、成本、安全事件和恢复事件。设计输入：trace 保留 30 天、security incident fail-closed、回归 eval 作为发布 gate。
+以“Agent 审核供应商发票并可能创建付款”为例：task 固定发票 snapshot、政策版本、允许 read tools、付款上限与人工审批规则；trajectory 保存提取证据和 calculator result；最终 verifier 重新计算金额、查询 vendor 状态、比对 effect ledger。自然语言解释可由 judge 评分，但付款资格只能由程序 checks 和 approval receipt 决定。
 
-
-### 上线前必须补齐
-
-- 围绕 **Agent Evaluation** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `Agent 评测必须覆盖 final answer、trajectory、tool、state、effect、cost 和 safety。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+上线 gate 应分三层：PR/离线 regression 发现确定性退化；shadow/canary 在真实流量分布上验证但禁止危险 effect；生产持续 eval 从 incident、人工 override、UNKNOWN 和安全拒绝中采样。线上样本回灌必须去标识、版本化，并防止训练/评测污染。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **自评成功**：模型 claim 与 verifier verdict 混用；检查数据库谁能写 verdict；
+- **环境未 reset**：前次 run 残留影响当前结果；比对 snapshot/digest 与 teardown evidence；
+- **只看 final answer**：漏掉越权、重复 effect 和不可恢复路径；检查 trajectory/effect ledger；
+- **Judge 偏差**：同源模型互相偏好；使用程序/human anchors 与盲评；
+- **数据污染**：task 或答案进入训练/上下文；保留 holdout、时间切分与污染审计；
+- **失败样本消失**：只展示成功轨迹；run ledger 必须 append/retain 所有 outcome；
+- **Verifier 被攻击**：Agent 修改 tests 或 grader；测试与 workspace 使用不同权限和只读来源；
+- **聚合掩盖风险**：平均质量提高但安全 escape 变差；hard gate 指标不得求平均抵消。
 
-- **用 LLM judge 替代全部 verifier**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **没有环境 reset**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **只展示成功样本**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错顺序是 task digest → environment snapshot → observations completeness → effect state → verifier version/input → checks → promotion transaction，而不是先重读模型解释。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+指标至少包含 verified success、unsafe success、quarantine reason、trace completeness、effect mismatch、human escalation、cost/latency per verified success、retry amplification 与 judge-human agreement。分母必须是所有 eligible attempts，而不是只统计成功返回。
 
-- `eval pass rate + confidence interval`
-- `trace completeness`
-- `security escape rate`
-- `UNKNOWN rate`
-- `retry amplification`
-- `cost per successful task`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Trajectory` 的生命周期时，要重新验证 **a verifier must evaluate observable task properties independently of the agent narrative**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “用 LLM judge 替代全部 verifier”、“没有环境 reset”、“只展示成功样本”：只有正常路径与对应 fault path 都保持 **a verifier must evaluate observable task properties independently of the agent narrative**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+大规模评测可按 task digest 缓存 deterministic setup，但不得跨环境复用 mutable observation。Verifier 可并行，hard gate 可短路昂贵 judge；然而为失败诊断，仍应保存哪些 checks 未执行。任务抽样需按风险/频率/新鲜度分层，关键 incident 永久进入 regression。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- LLM-as-judge 不是绝对真值，需要标定与人类/程序 verifier 交叉验证
-- trace 只能观察已埋点路径，不能证明未记录副作用不存在
-- prompt injection 无单一提示词能彻底解决，必须做权限/隔离防御
-- 性能数字高度依赖模型/provider/工具与数据，不能跨环境直接比较
+本章 Core Lab 使用固定答案和本地 SQLite，证明判定权与 durability，不测开放任务能力。`trajectory_present` 只证明至少一条 observation，不证明 trace 完整；effect 列表来自本地记录，不证明未埋点外部行为不存在；task digest 证明字节身份，不证明 task 本身有效。
 
-选择方案时要回到本章边界：如果业务不能接受“用 LLM judge 替代全部 verifier”，就必须为 `Task spec` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Trajectory` 决策交给模型，但要用 `比较成功率/成本/步数` 保持结果可验证。**Anthropic: Demystifying evals for AI agents** 与 **Google Agent Development Kit** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Evaluation 需要区分最终答案、轨迹质量、工具副作用与恢复行为。一个 benchmark 分数不能替代生产不变量；评测数据污染、provider 变化与基础设施噪声都应被记录为实验条件。
+真实模型运行还受 provider 更新、非确定采样、区域、缓存、限流和工具版本影响。必须报告这些条件并重复执行。任何“本模型成功率 X%”都需要实际 run artifacts；本书未运行的 provider/benchmark 不发布数字。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+Agent evaluation 正从最终答案转向过程与因果诊断：环境型 benchmark 测真实 interaction；trajectory evaluator 区分“正确但危险”与“稳定正确”；process reward/verifier 指导中间决策；自动红队生成对抗任务；continuous eval 把生产 incident 转成回归。
 
-- **[AgentBench: Evaluating LLMs as Agents](https://arxiv.org/abs/2308.03688)**：多环境 Agent benchmark，推动从答案评估转向交互任务评估。
-- **[Anthropic: Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)**（2026-01-09）：Agent eval 需要 task/environment/trajectory/grader 共同设计。
-- **[Google Agent Development Kit](https://github.com/google/adk-python)**（v2.1.0 @ 6d15e19）：Agent、workflow、sandbox、telemetry、evaluation/deployment 参考实现。
+仍未解决的问题包括：如何估计 evaluator 与被测模型的相关错误；如何在保护隐私时公开真实 trajectory；如何区分模型能力、scaffolding、环境噪声和 verifier 缺陷；如何评价长期任务中部分进展与可恢复性；如何让不同 runtime 共享 task/evidence schema。
 
+截至 2026-09-11，本章把前沿结论限制为可审计方法，不以“更强 judge”替代环境事实。下一章将说明 benchmark 自身也必须被评测。
 
-### 截至 2026-09-11 的研究更新
+### 深度审计与研究证据链
 
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI GDPval（2025‑09‑25; observed 2026-09-11）：real‑world knowledge‑work evaluation across 44 occupations and 9 sectors。
-- OSWorld2.0: Benchmarking Computer Use Agents on Long‑Horizon Real‑World Tasks（arXiv 2606.29537; 2026‑06‑28）：long‑horizon computer use, hidden state, cross‑source reasoning, safety。
-- HealthAgentBench（arXiv 2606.31179; 2026‑06‑30）：54 realistic healthcare agent tasks across 7 categories。
-- EduAgentBench（arXiv 2605.14322; 2026‑05‑14）：150 real‑world teaching workflow tasks and pedagogical evaluation。
-
-**本章吸收的变化。** Agent evaluation 必须跨越 final answer：同时评价 trajectory、外部状态、 artifact、成本和风险。生产 eval 还要把线上 incident 转回 regression。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Task spec`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **a verifier must evaluate observable task properties independently of the agent narrative** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“用 LLM judge 替代全部 verifier”和“没有环境 reset”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Agent Evaluation** 的可验证性。Anthropic evals、PaperBench、AgentBench 都强调环境、轨迹和 grader 设计，而不是只看答案。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Task spec` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“用 LLM judge 替代全部 verifier”与“没有环境 reset”同时发生时，**Anthropic: Demystifying evals for AI agents** 与 **Google Agent Development Kit** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Trajectory` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“只展示成功样本”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Agent Evaluation
-
-本章重新审计后的核心结论是：**Agent 评测必须覆盖 final answer、trajectory、tool、state、effect、cost 和 safety。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[PaperBench](https://openai.com/index/paperbench/)**：把论文复现拆成细粒度可评分任务，强调 rubric/grader。
-- **[AgentDojo](https://arxiv.org/abs/2406.13352)**：用不可信工具返回内容测试 prompt injection 攻防。
-- **[Agent Security Bench](https://arxiv.org/abs/2410.02644)**：覆盖多工具、多场景、多攻击/防御的 Agent 安全评测。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。OpenAI Evals/PaperBench、LangSmith/LangGraph eval、ai-agent-book eval labs 可对照。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Agent Evaluation 的观测、评测、安全或生产控制面不变量；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章 claims 被分成三层：源码/单测证明 SQLite promotion gate 的机制；A/B Lab 证明虚假 claim 被隔离；任何模型质量结论还必须附真实 provider run、task manifest、trajectory 与统计报告。三层不可逆向外推，尤其不能把 L3 containment 写成模型总体成功率。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Agent Evaluation 的本质是把“成功”从叙事变成状态机：版本化 task 约束执行，trajectory/effect 提供事实，独立 verifier 产生 checks，promotion gate 决定能否进入发布。可信系统既保存成功，也保存被隔离的失败。
 
-1. 本章不变量是：**a verifier must evaluate observable task properties independently of the agent narrative**；
-2. `Task spec` 必须是可观察软件边界，而不是 prompt 约定；
-3. `golden dataset 版本化` 与 `比较成功率/成本/步数` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 L](../appendix-l-part6-solutions.html#ch29)）：
 
-### 常见误区
-
-- 用 LLM judge 替代全部 verifier
-- 没有环境 reset
-- 只展示成功样本
-
-### 思考题与实践
-
-- **Why：** 为什么 `Task spec` 不能只靠模型“记住”？
-- **What if：** 如果在 `golden dataset 版本化` 与 `比较成功率/成本/步数` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch29_evaluation.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **SWE-bench、OSWorld、PaperBench 与 MLE-bench**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么最终答案正确仍可能必须判定 task 失败？
+2. LLM-as-judge 在什么条件下可以参与、但不能独占 verdict？
+3. 如何避免 Agent 修改自己的 tests/verifier？
+4. 为什么 task digest 一致仍不足以证明两次结果可比较？
+5. 如何把本章 L1/L3 实验升级为真实模型的统计性评测？

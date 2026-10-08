@@ -2,15 +2,16 @@ digraph G {
 graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
 node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
 edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Untrusted content",fillcolor="#edf5ff"];
-n2 [label="Policy",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Guardrail",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+trusted [label="Authenticated instruction\nprincipal + policy",fillcolor="#fff4e6"];
+untrusted [label="Untrusted data\nweb · tool · memory · agent",fillcolor="#fdecea"];
+model [label="Model\nproposes ToolIntent",fillcolor="#edf5ff"];
+gateway [label="Capability gateway\nidentity · resource · args",fillcolor="#eef9f1"];
+sandbox [label="Sandbox + credential broker\nleast privilege · egress",fillcolor="#f6efff"];
+audit [label="Effect receipt + redacted audit",fillcolor="#f7f9f9"];
+trusted->model;
+untrusted->model [label="data only"];
+model->gateway [label="candidate intent"];
+gateway->sandbox [label="allow"];
+gateway->audit [label="deny"];
+sandbox->audit;
 }

@@ -6,11 +6,25 @@ All notable public changes are documented here. The project follows [Semantic Ve
 
 ### Added
 
-- README quality gate that checks every local link and requires exact coverage of the 40 canonical chapters, 80 Core Labs, 6 appendices and versioned release download assets.
+- Recomputable 40-chapter audit matrix, checked in CI against canonical source and all 80 A/B lab links.
+- Negative tests for fault-evidence grading, deployment lock absence/mismatch, paired-evaluation manipulation, and stale capstone approval.
+- README quality gate that checks every local link and requires exact coverage of the 40 canonical chapters, 80 Core Labs, 13 appendices and versioned release download assets.
+- Two executable assurance modules for evaluation, benchmark comparability, tamper-evident traces, capability authorization, effect reconciliation, production HTTP, deployment contracts, dataset leakage, realtime cancellation, canary rollback and the durable capstone.
+- Part VI and Part VII solution appendices with 60 evidence-oriented answers.
 
 ### Changed
 
+- Corrected Chapter 1's model/runtime state-transition formalism and narrowed Chapters 36–40's static, local, in-memory and fixture evidence claims.
+- Replaced scenario-name-based L3/L4 grading with explicit observed detection, containment and recovery facts.
+- Removed offline reverse-DNS startup delay from local browser/API experiments; both still use real loopback HTTP.
+- Made deployment preflight read the actual image lock, and made capstone capability preflight side-effect-free with caller-supplied, intent-bound teaching approval.
+- Pinned urllib3 2.8.0 after the 2026-10-08 audit found three new advisories in 2.7.0; the refreshed audit reports no known vulnerabilities.
+- Added East Asian OOXML font metadata to generated course slides for better cross-application handling.
 - Rebuilt the Chinese README around reader workflows: auditable PDF/EPUB/HTML downloads, GitHub reading, learning paths, chapter summaries, per-chapter normal/fault lab links, evidence semantics, code entry points and release verification.
+- Rewrote Chapters 29–40 and Labs 29A–40B around executable invariants, independent verifiers, explicit claim ceilings and real normal/fault outputs; all 40 fault labs now reach either containment or verified recovery.
+- Expanded the local suite to 237 tests and 89.81% coverage, with 80/80 Core Labs and 69/69 executable examples passing.
+- Pinned AnyIO 4.14.2 to remediate CVE-2026-63374 and CVE-2026-64847; the refreshed dependency audit reports no known vulnerabilities.
+- Marked hosted canonical publication and clean-rebuild equivalence as pending for this worktree instead of inheriting evidence from an earlier commit.
 
 ## [1.0.0] - 2026-09-11
 

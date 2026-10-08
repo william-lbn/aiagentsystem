@@ -2,15 +2,16 @@ digraph G {
 graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
 node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
 edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Token budget",fillcolor="#edf5ff"];
-n2 [label="Latency waterfall",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Caching",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+workload [label="Workload\ntasks · arrival · concurrency",fillcolor="#fff4e6"];
+queue [label="Queue / admission\nrate · budget · backpressure",fillcolor="#edf5ff"];
+critical [label="Critical path\ncontext · model · tool · persist",fillcolor="#eef9f1"];
+cache [label="Cache / router\ntenant · policy · version",fillcolor="#f6efff"];
+verifier [label="Verified success\nquality · safety · effect",fillcolor="#edf5ff"];
+report [label="p50/p95/p99 + cost\nrelease SLO gate",fillcolor="#f7f9f9"];
+workload->queue;
+queue->critical;
+cache->critical;
+critical->verifier;
+verifier->report;
+workload->report [label="manifest"];
 }

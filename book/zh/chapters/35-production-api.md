@@ -1,357 +1,217 @@
 # 生产 Agent API：服务边界、租户、审批和审计
 
-> **本章核心判断**：一个可上线 Agent 服务要把前端会话、Agent Runtime、工具服务、数据库、审批、审计和部署边界分清。
+> **本章核心判断**：生产 Agent API 不是把聊天函数包成 HTTP。它必须将认证 identity、tenant ownership、幂等请求、异步 task state、审批、artifact/effect、审计与资源预算变成服务端不变量，并在存储层执行隔离。
 
-上一章：性能与成本：Token、延迟、并发和缓存。本章把前一章已经建立的能力进一步推进到 `API server`；下一章将进入：部署工程：Docker、本地开发与 CI 验证。
+第 29–34 章建立了判定、benchmark、证据、安全、恢复和性能门禁。本章把它们组合成对外服务边界；下一章进入部署与发布工程。
 
-![生产 Agent API：服务边界、租户、审批和审计：系统边界与组件关系](../../assets/diagrams/35-production-api-architecture.svg)
+![生产 Agent API 的入口、任务存储、worker、审批、effect 与租户隔离](../../assets/diagrams/35-production-api-architecture.svg)
 
 ## 问题背景与学习目标
 
-一个可上线 Agent 服务要把前端会话、Agent Runtime、工具服务、数据库、审批、审计和部署边界分清。
+一个同步 `/chat` endpoint 无法可靠承载长时 Agent：客户端断开后任务是否继续？重试会不会创建两个 run？谁能读 artifact/trace？审批如何恢复？同一用户跨 tenant 如何授权？模型超时是否取消 tool？API 返回 200 是否代表 effect 已提交？
 
-在本章的 `API server` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章完成后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“一个可上线 Agent 服务要把前端会话、Agent Runtime、工具服务、数据库、审批、审计和部署边界分清。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `tenant identity must constrain every read/write below the API boundary` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 35A` / `Lab 35B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 设计 request、run/task、artifact、approval、effect 的独立 identity；
+- 使用 202 + durable task resource 表达异步执行；
+- 在存储查询层绑定 tenant，而非响应层事后过滤；
+- 实现 idempotency key + payload digest conflict；
+- 处理认证、对象授权、不可枚举错误、rate/cost limit 和审计；
+- 运行真实 loopback HTTP/SQLite normal 与 cross-tenant fault 实验。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：认证 tenant identity、idempotency 和 object ownership 必须在 HTTP 下方的持久层保持；外部标识不能绕过 tenant-scoped read/write，也不能因错误响应泄漏资源存在性。
 
-### API server
+**Request ID、idempotency key、run ID、effect key 不是同一个东西。** Request 标识一次传输；idempotency 标识同一创建意图；run 标识任务实例；effect key 标识某个外部业务副作用。混用会导致重试、审计与恢复语义错乱。
 
-**定义。** 把 Agent run、stream、resume、approval、artifact 和 admin 操作暴露为稳定服务契约的边界。
+**202 Accepted 不是 success。** 它表示服务已持久接受 task，客户端通过 GET/events 查询 `ACCEPTED/RUNNING/WAITING_APPROVAL/COMPLETED/FAILED/...`。业务 success 还需 verifier/effect receipt。
 
-**系统责任。** API server 应做认证、参数/schema、幂等、rate limit、tenant context 和状态查询，不把长任务绑死在单次 HTTP 连接。
+**Authentication 不等于 authorization。** 有效 token 只证明 caller identity；每个 run/artifact/trace/approval 都需对象级 tenant/owner/policy 检查。
 
-**失败边界。** 直接把模型 loop 放在请求线程中会在断线/重启时丢状态；HTTP 200 也不能代表异步业务任务成功。
+**Tenant isolation 必须下推。** SQL/object key/cache key/queue partition 都包含 tenant。先查全局对象再判断 tenant，会在 timing、log、cache 或 error body 泄漏。
 
-### Tenant
-
-**定义。** 决定数据、memory、tool credentials、quota、trace 和 billing 隔离范围的逻辑主体。
-
-**系统责任。** Tenant context 必须从可信 identity 派生并贯穿 storage/cache/tool，不允许模型或用户正文随意覆盖。
-
-**失败边界。** 只在 UI 显示 tenant 而底层表/cache 不隔离，会形成跨租户数据泄露和 effect 执行。
-
-### Approval endpoint
-
-**定义。** 接收人类/策略对待执行动作的签名决定，并把它绑定具体 run、state version、action hash 与有效期。
-
-**系统责任。** 它支持异步 HITL，不要求批准者保持原连接；resume 前还应重新检查状态是否变化。
-
-**失败边界。** approval 只传 yes/no 且不绑定 action，攻击者可在批准后替换参数；重复回调也可能多次恢复同一 run。
-
-### Audit DB
-
-**定义。** 保存身份、 policy decision、 state transition、 approval、 effect 与关键 artifact metadata 的可查询证据库。
-
-**系统责任。** Audit DB 与高容量 trace 可以分层， 但关键事件应不可悄然覆写， 并支持 retention/删除合规。
-
-**失败边界。** 把所有证据只放 observability backend 会受采样/TTL 影响；把原始敏感内容全写审计库又违反最小化原则。
+**API schema 是兼容性合同。** Model/provider/tool 是内部实现；外部 task/event/artifact/error schema 应稳定版本化，避免把 provider 特有 JSON 暴露为公共协议。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：tenant identity must constrain every read/write below the API boundary
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `单用户 demo 直接暴露给多租户` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “单用户 demo 直接暴露给多租户”、“审批接口可被重复提交”、“运行态和审计态混在一个字段” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **API server** 与 **Tenant** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“单用户 demo 直接暴露给多租户”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 API server 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Tenant 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `请求带 tenant/run id`、`健康检查和版本接口` 以及对不变量 **tenant identity must constrain every read/write below the API boundary** 的检查。
-
-**What if。** 一旦“审批接口可被重复提交”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+一个资源访问判定可写为：
 
 $$
-RunState\perp ConnectionState,\qquad Tenant_i\cap Tenant_j=\varnothing
+Allow = AuthN(identity) \land Tenant(identity)=Tenant(resource) \land Policy(action,resource,context)
 $$
 
-生产 API 必须让 run 生命周期独立于单次 HTTP/WebSocket 连接，并把租户隔离做成服务端不变量。
+其中 resource lookup 本身也应在 tenant predicate 内。对不存在与 foreign resource，公共响应使用同一 404，内部 audit 保留不同 reason。
 
-**可证伪假设。** durable run identity + tenant-scoped storage 能减少断线丢任务和跨租户状态泄漏。
+创建幂等要求同一 $(tenant,key)$：相同 payload digest 返回原 run；不同 digest 返回 conflict。设创建函数 $C$：
 
-**建议测量。** resume success、cross-tenant access blocks、idempotent create、audit completeness。
+$$
+C(t,k,p)=
+\begin{cases}
+existing\ run & H(p)=stored\ digest\\
+409 & H(p)\ne stored\ digest\\
+new\ run & key\ absent
+\end{cases}
+$$
+
+这避免网络重试重复 task，也避免客户端误用 key 时静默得到不相干结果。Task 执行的 effect 还需第 33 章的独立 effect key；创建幂等不自动使内部工具幂等。
 
 ## 关键机制与执行流程
 
-![生产 Agent API：服务边界、租户、审批和审计：正常路径与故障恢复流程](../../assets/diagrams/35-production-api-flow.svg)
+![从认证、幂等接受、异步执行到对象级读取和审批](../../assets/diagrams/35-production-api-flow.svg)
 
-**Step 1 — 请求带 tenant/run id。** `请求带 tenant/run id` 是“生产 Agent API：服务边界、租户、审批和审计”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `API server` 是否仍满足 **tenant identity must constrain every read/write below the API boundary**。
+1. **边界验证**：TLS、auth token、audience/issuer/expiry、body size/schema、content type；
+2. **注入 identity**：服务端生成 tenant/principal context，忽略 body 自报 tenant；
+3. **幂等接受**：在 transaction 内比较 `(tenant,key,payload_digest)` 并创建/返回 run；
+4. **异步调度**：run state 写入 durable queue/store，worker 以 workload identity claim；
+5. **执行治理**：能力、预算、checkpoint、trace、approval、effect/reconcile；
+6. **对象读取**：GET/artifact/trace 都用 tenant-scoped lookup，不可枚举 foreign ID；
+7. **终态验证**：COMPLETED 与 VERIFIED/effect receipt 分开，API 返回可机读 outcome；
+8. **审计与 SLO**：accept、authz deny、idempotency conflict、state、effect、cost 全关联。
 
-**Step 2 — 审批接口幂等。** 这一阶段可能改变系统或外部环境，因此 `审批接口幂等` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **tenant identity must constrain every read/write below the API boundary**。
-
-**Step 3 — 审计表不可由模型写。** 这一阶段可能改变系统或外部环境，因此 `审计表不可由模型写` 不能只存在于模型文本中。runtime 在执行前绑定 `run_id/step_id` 与参数摘要，执行后记录结果或外部 observation；如果调用可能重复，必须同时定义幂等键或 reconciliation 依据。这里检查的核心是 **tenant identity must constrain every read/write below the API boundary**。
-
-**Step 4 — 健康检查和版本接口。** `健康检查和版本接口` 不读取模型的自我评价，而读取 `Audit DB` 对应的 artifact、状态或环境事实。验证器应返回可机读结果，并在证据不足时保留失败/UNKNOWN，而不是为了让流程继续而猜测。这样才能把本章不变量 **tenant identity must constrain every read/write below the API boundary** 变成真正的验收条件。
-
-在本章的 `API server` 场景中，**最后一步 — 验证。** verifier 针对 `Audit DB` 检查本章不变量 **tenant identity must constrain every read/write below the API boundary**。如果“单用户 demo 直接暴露给多租户”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **请求带 tenant/run id → 审批接口幂等 → 审计表不可由模型写 → 健康检查和版本接口** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“单用户 demo 直接暴露给多租户”尤其要检查动作前后的证据是否足以闭合不变量 **tenant identity must constrain every read/write below the API boundary**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `API server` 有关的纯计算状态通常可以重算；一旦 `审批接口幂等` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **tenant identity must constrain every read/write below the API boundary**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+取消也应是资源操作而不是 kill signal：`POST /runs/{id}:cancel` 返回请求已接受，runtime 记录 cancel_requested；已提交 effect 仍需 observation，最终可能是 `CANCELED_WITH_EFFECT` 等更精确状态。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='生产 Agent API：服务边界、租户、审批和审计')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('production-api', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+本章使用真实 `ThreadingHTTPServer` 绑定 `127.0.0.1:0`，`urllib` 发送实际 HTTP。Teaching token 由 tenant + HMAC 构造并 constant-time 验证：
 
 ```python
-def production_api(fault=False):
- rows=[{'tenant':'a','run':'r1'},{'tenant':'b','run':'r2'}]; caller='a'; requested='r1' if not fault else 'r2'
- visible=[r for r in rows if r['tenant']==caller and r['run']==requested]
- return _ok('production-api',fault,{'caller':caller,'requested':requested,'visible':visible},'tenant identity must constrain every read/write below the API boundary',bool(visible) if not fault else not visible)
+auth = TenantAuthenticator(b"agentlab-teaching-key-2026")
+token_a = auth.issue("tenant-a")
+status, created = http_json(
+    "POST",
+    service.base_url + "/v1/runs",
+    token=token_a,
+    payload={"task": "audit invoice"},
+    idempotency_key="request-35-a",
+)
+assert status == 202
 ```
 
-Core Lab 35 只验证 tenant-scoped visibility；真正的生产教学服务位于 `production/agentops_service/app/main.py`，并由 `tests/e2e/test_agentops_api.py` 端到端验证：写请求先生成 tenant-bound pending action；审批必须提交精确 `action_id`；批准后创建 durable effect record、修改示例资源、再次 observation，并把 verifier 结果与 evidence 一并保存。重复相同审批不会制造第二个 effect，跨租户 run 查询和 stale action approval 均拒绝。
+Store 使用复合唯一约束和 tenant-scoped query：
 
-示例用**同一个 SQLite 事务**包住本地资源与 effect/evidence，因此这个教学服务可以得到本地原子性；这个性质绝不能推广到远端 SaaS、支付或云 API。真实 adapter 必须另外提供 idempotency key、可查询 post-condition 或 reconciliation/compensation。
+```python
+CREATE TABLE runs(
+  tenant TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  state TEXT NOT NULL,
+  PRIMARY KEY(tenant, run_id),
+  UNIQUE(tenant, idempotency_key)
+)
 
+SELECT run_id,state FROM runs WHERE tenant=? AND run_id=?
+```
 
-### 简化假设与不能省略的机制
-
+相同 key/payload 两次 POST 返回同一 deterministic run；相同 key/不同 payload 返回 409。A token 读取真实 B run 时仍只得到统一 404。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
-|---|---|---|---|---|
-| OpenHands SDK architecture | `docs observed 2026-09-09` | Software Agent SDK / Agent Server / applications 分层。 | 以官方 docs/release/source tree 为准 | [官方来源](https://docs.openhands.dev/sdk/arch/overview) |
-| Microsoft Agent Framework | `Python 1.13.0` | 从 Workflow executor/superstep/checkpoint 语义入手，对照 pending messages、requests/responses 与 shared state 的持久化边界。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/microsoft/agent-framework) |
-| OpenAI Agents SDK | `v0.22.0 @ 4df9ecf` | 从 Agent/Runner 入口追踪 tool loop、RunState、session、guardrail 与 tracing；特别对照 v0.22.0 对 replay state 与 failed/incomplete response 的 hardening。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/openai/openai-agents-python) |
+| API/模式 | 优势 | 重点审计 | 不应直接暴露 |
+|---|---|---|---|
+| REST task resource | 简单、缓存/权限语义清晰 | 202/state/idempotency/error/version | provider 内部 response 结构 |
+| SSE/WebSocket stream | 增量进度与人机交互 | reconnect cursor、backpressure、auth refresh | secret/raw chain-of-thought |
+| A2A task/artifact | 跨 Agent 标准任务语义 | discovery/auth/task state/artifact/cancel | 本地 tenant/IAM 自动正确 |
+| MCP tool/resource | 标准化 tool/resource 交互 | auth/resource server/schema/approval | “发现即授权” |
+| Framework hosted API | 快速集成 runtime/session | storage ownership、trace/retention、effect semantics | 供应商特有字段作为公共合同 |
 
-### 源码阅读方法
-
-源码阅读以 **OpenHands SDK architecture** 为第一参照，并只追与“生产 Agent API：服务边界、租户、审批和审计”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“单用户 demo 直接暴露给多租户”、如何在“审批接口可被重复提交”后恢复，以及如何让 `健康检查和版本接口` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+读取生产服务源码应沿 middleware/auth → request validation → idempotency transaction → task store/queue → worker claim → policy/approval/effect → resource serializers → audit。只看 OpenAPI schema 无法验证存储隔离。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 决策 | 方案 A | 方案 B | 选择依据 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| OpenHands SDK architecture | 贴近 coding/长期执行 harness，工作区和工具边界更真实 | 依赖更重或迭代快，升级需锁版本做回归 | Coding Agent、Harness 源码学习 |
-| Microsoft Agent Framework | 状态/工作流抽象成熟，适合长任务与治理 | 框架状态不能自动解决外部副作用不确定性 | 企业 workflow、HITL、durable orchestration |
-| OpenAI Agents SDK | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| 执行 | 同步长连接 | 202 + durable task | 超时、恢复、长任务 |
+| 更新 | polling | SSE/WebSocket/webhook | 客户端能力、事件量、网络 |
+| 隔离 | shared table + tenant predicate/RLS | 每 tenant DB/account | 风险、规模、运营成本 |
+| 认证 | long-lived API key | OIDC/workload identity + short token | 用户/服务身份与轮换 |
+| 审批 | 模型文本确认 | durable approval resource/receipt | 高风险 effect 必选后者 |
+| 多版本 | provider passthrough | stable domain schema + adapter | 长期兼容/多 provider |
 
+小型系统可以 shared DB，但要复合键/RLS、负向测试和 cache/queue tenant key；高监管/高价值 tenant 可提高物理隔离。隔离层级不是营销标签，应由 threat model 和审计验证。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“生产 Agent API：服务边界、租户、审批和审计”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“生产 Agent API：服务边界、租户、审批和审计”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 35A — 正常路径
+### Lab 35A — HTTP 创建、读取与幂等重放
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch35_production_api.py
+PYTHONPATH=src uv run python examples/chapters/ch35_production_api.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::production_api`
-- `examples/chapters/ch35_production_api.py::main`
-
-**本发布包实际输出：**
+实际输出核心字段：
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "tenant identity must constrain every read/write below the API boundary", "invariant_holds": true, "observation": {"caller": "a", "requested": "r1", "visible": [{"run": "r1", "tenant": "a"}]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "production-api", "system_detected": false}
+{"create_status":202,"idempotent_replay":true,"requested_run":"run_3d37a81fcb836704","get_status":200,"response":{"run_id":"run_3d37a81fcb836704","state":"ACCEPTED"},"evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 35A](../../../labs/core/lab-35A-production-api.md)。
-
-### Lab 35B — 故障注入
+### Lab 35B — 有效 A token 读取 B 对象
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch35_production_api.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch35_production_api.py --fault
 ```
 
-**本发布包实际输出：**
+实际输出核心字段：
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "tenant identity must constrain every read/write below the API boundary", "invariant_holds": true, "observation": {"caller": "a", "requested": "r2", "visible": []}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "production-api", "system_detected": true}
+{"idempotent_replay":true,"requested_run":"run_ef0d87f7ac1120c9","get_status":404,"response":{"error":"not_found"},"foreign_identifier_leaked":false,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L3_CONTAINED**：被测组件检测并 fail-closed/约束了故障，但不声明已恢复业务结果。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 35B](../../../labs/core/lab-35B-production-api-fault.md)。
-
-### 观察与证据
-
+**关键断点与验收。** 检查 token 得到的 tenant、create unique transaction、payload conflict 和 GET SQL。A 验收两次 POST 同 run；B 验收 foreign/absent 同 404 且 body 无 B 信息。完整步骤见 [Lab 35A](../../../labs/core/lab-35A-production-api.md) 与 [Lab 35B](../../../labs/core/lab-35B-production-api-fault.md)。
 
 ## 工程场景与系统设计
 
-**教学工程设计输入（不是公开云厂商性能数据）：** 面向多个业务租户的 Agent API 需要稳定发布、审计、容量管理和恢复。设计输入：30 个租户、API p95 < 1 s（不含长任务完成时间）、控制面 RPO 0、故障演练每月执行。
+建议资源模型：`POST /v1/runs`、`GET /v1/runs/{id}`、`GET /v1/runs/{id}/events?cursor=`、`GET /artifacts/{id}`、`POST /approvals/{id}/decisions`、`POST /runs/{id}:cancel`。每个资源有 tenant/owner/ACL、ETag/version、retention 和 audit。
 
+请求体引用 task/input/artifact，不携带服务端 secret；模型/provider config 由受控 policy/profile 选择。客户端可请求质量/成本 tier，但服务端根据 tenant quota/risk 限制。高风险 effect 进入 WAITING_APPROVAL，审批者看到 canonical intent/diff/resource，而非模型自由文本。
 
-### 上线前必须补齐
-
-- 围绕 **生产 Agent API** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `生产 API 必须暴露租户、审批、审计、状态查询和恢复入口。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+部署前至少测试：认证失败、token tamper/expiry、cross-tenant read/write、idempotency race/conflict、body bomb/schema、queue saturation、worker crash、cancel race、approval replay、effect UNKNOWN、artifact ACL、cache tenant key 与 trace redaction。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **BOLA/IDOR**：合法 token 猜 foreign ID；tenant-scoped lookup + 统一 404；
+- **Body tenant spoofing**：客户端字段覆盖 identity；tenant 只来自认证 context；
+- **幂等冲突**：同 key 不同 payload；409 并保留原 run；
+- **并发重复创建**：先查后写竞态；数据库 unique + transaction；
+- **Worker 重复 claim**：lease/version/CAS，内部 effect 仍用独立 key；
+- **Cache 泄漏**：cache key 缺 tenant/auth policy；负向测试与 partition；
+- **Stream reconnect 丢/重事件**：monotonic event seq/cursor，consumer 去重；
+- **取消误解**：API ack 当成 effect 撤销；观察 task/effect 最终状态。
 
-- **单用户 demo 直接暴露给多租户**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **审批接口可被重复提交**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **运行态和审计态混在一个字段**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错顺序：gateway/request ID → authenticated identity → idempotency row → task state/lease → policy/approval → effect receipt → tenant-scoped serializer/cache → audit/trace。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+SLO 分层：accept latency、queue wait、time-to-first-progress、verified completion、approval wait、effect reconciliation、artifact availability。HTTP 2xx availability 不能代替 verified task success。Rate limit 同时按 tenant/principal/IP/model/tool/cost，避免一个 tenant 占满全局 provider quota。
 
-- `API p95/p99`
-- `tenant isolation violations`
-- `queue depth`
-- `RPO/RTO rehearsal`
-- `deployment rollback time`
-- `cost per tenant/run`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Tenant` 的生命周期时，要重新验证 **tenant identity must constrain every read/write below the API boundary**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “单用户 demo 直接暴露给多租户”、“审批接口可被重复提交”、“运行态和审计态混在一个字段”：只有正常路径与对应 fault path 都保持 **tenant identity must constrain every read/write below the API boundary**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+容量与 backpressure：有界 queue；过载时 429/503 + retry-after，不无限接受；worker concurrency 与第 34 章预算关联；dead-letter 不是垃圾桶，要有 owner/replay contract。DB 索引以 tenant 为前缀，audit/artifact retention 分层。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- 教学服务不等于生产认证系统，HA、secret broker、审计保留等需额外实现
-- 多租户必须在存储/缓存/日志/队列每层强制 tenant boundary
-- 部署成功不代表恢复成功，需定期做故障演练
-- post-training 会改变行为分布，必须用独立 eval gate 防回归
+Core Lab 是本机明文 loopback HTTP，HMAC token 无 expiry/audience/key rotation，单 SQLite/单进程，无 TLS、OIDC、RLS、queue、SSE、多实例或真实模型。它真实验证 HTTP parser、socket、认证、幂等和存储隔离路径，但不是 production server 模板。
 
-选择方案时要回到本章边界：如果业务不能接受“单用户 demo 直接暴露给多租户”，就必须为 `API server` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Tenant` 决策交给模型，但要用 `健康检查和版本接口` 保持结果可验证。**OpenHands SDK architecture** 与 **Microsoft Agent Framework** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Production API 的 HTTP 200 只代表接口处理结果，不代表外部 effect 已按业务语义完成。租户隔离、action-bound approval、durable effect record 与独立 verifier 必须在 API 之外形成闭环。
+生产可使用 FastAPI/Starlette 等成熟框架、API gateway、OIDC library、PostgreSQL RLS 与 durable queue；但框架不会自动保证 tenant key、effect recovery 和 verifier gate。应保留本章负向不变量测试，不依赖代码 review 猜测。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+前沿包括跨组织 Agent identity/authorization、A2A task federation、MCP resource authorization、policy-carrying artifacts、verifiable delegation、长期 session privacy、以及标准化 approval/effect receipt。难点是让 authority 随委派衰减而非扩大，并能跨 host 保留审计链。
 
-- **[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)**：提出 reasoning/action 交错轨迹，连接语言推理与外部环境动作。
-- **[Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761)**：探索模型学习何时调用外部工具以及如何把工具结果纳入后续预测。
-- **[OpenHands SDK architecture](https://docs.openhands.dev/sdk/arch/overview)**（docs observed 2026-09-09）：Software Agent SDK / Agent Server / applications 分层。
-- **[Microsoft Agent Framework](https://github.com/microsoft/agent-framework)**（Python 1.13.0）：Agents、Workflows、Memory、Tools、Skills、Security、Hosting、Observability。
+另一个方向是“Agent control plane”：模型和 runtime 可替换，而 task/evidence/policy/budget/identity API 稳定。它使多 provider、本地/云模型和 durable workflow 共享治理，但需要更严格 domain schema 和 migration。
 
+截至 2026-09-11，本章不把协议兼容等同于多租户安全。互操作只解决消息形状；identity trust、tenant policy、storage isolation 与 effect semantics 仍由部署者证明。
 
-### 截至 2026-09-11 的研究更新
+### 深度审计与研究证据链
 
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI: The next evolution of the Agents SDK（2026‑04‑15）：model‑native harness, sandbox, long‑horizon tasks and subagents。
-- NIST Agent Identity and Authorization Concept Paper（published 2026‑02‑05）：agent identity, delegated authority, authentication and authorization。
-- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)**（published 2026-09-01）：对生产 API 最直接的启发是把控制点放到可检查、可追踪、可插桩的 runtime/middleware 层，使 policy enforcement 与具体 agent framework 解耦；本章因此要求审批、tenant、effect verifier 和审计均由确定性服务端状态拥有。
-
-**本章吸收的变化。** 生产 API 必须把长时 run 生命周期与 HTTP/WebSocket 连接解耦，并让 tenant isolation 贯穿 state、memory、tools、audit。这些研究/规范的价值不在于替换本章原理， 而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `API server`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **tenant identity must constrain every read/write below the API boundary** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“单用户 demo 直接暴露给多租户”和“审批接口可被重复提交”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **生产 Agent API** 的可验证性。OGX、OpenAI Agents SDK 和 MAF 表明 agentic application server 正在标准化，但业务边界仍需自研治理。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `API server` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“单用户 demo 直接暴露给多租户”与“审批接口可被重复提交”同时发生时，**OpenHands SDK architecture** 与 **Microsoft Agent Framework** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Tenant` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“运行态和审计态混在一个字段”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：生产 Agent API
-
-本章重新审计后的核心结论是：**生产 API 必须暴露租户、审批、审计、状态查询和恢复入口。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)**：提供 GenAI spans/events/metrics/MCP 语义约定。
-- **[OGX](https://arxiv.org/abs/2608.14580)**：把 agentic application server 与多 provider API surface 作为部署方向。
-- **[Anthropic infrastructure-noise analysis](https://www.anthropic.com/engineering/infrastructure-noise)**：提醒 agentic coding benchmark 会受 CPU/内存等基础设施影响。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。FastAPI AgentLab、OpenAI Agents SDK、MAF hosting、OGX 可对照。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证生产 Agent API 的观测、评测、安全或生产控制面不变量；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章的 L3 来自真实 loopback HTTP、有效 foreign-tenant token、SQLite tenant predicate 与统一 404，而不是对列表做内存过滤。它仍是单实例 teaching boundary；TLS/OIDC/RLS/cache/queue 的生产隔离必须在部署拓扑中另存配置、负向测试与审计 evidence。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+生产 Agent API 是受治理的异步任务系统：入口认证，transaction 幂等接受，存储层 tenant 隔离，worker 持久执行，approval/effect/verdict 可审计，错误不泄漏对象存在性。模型只是其中一个执行组件。
 
-1. 本章不变量是：**tenant identity must constrain every read/write below the API boundary**；
-2. `API server` 必须是可观察软件边界，而不是 prompt 约定；
-3. `请求带 tenant/run id` 与 `健康检查和版本接口` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 L](../appendix-l-part6-solutions.html#ch35)）：
 
-### 常见误区
-
-- 单用户 demo 直接暴露给多租户
-- 审批接口可被重复提交
-- 运行态和审计态混在一个字段
-
-### 思考题与实践
-
-- **Why：** 为什么 `API server` 不能只靠模型“记住”？
-- **What if：** 如果在 `请求带 tenant/run id` 与 `健康检查和版本接口` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch35_production_api.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **部署工程：Docker、本地开发与 CI 验证**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么 request ID、run ID 与 idempotency key 不能混用？
+2. 202 Accepted 与 Agent 成功之间还缺哪些状态？
+3. 为什么对象授权必须下推到 storage query？
+4. 同一 idempotency key 改 payload 为什么应返回 conflict？
+5. 如何把本章 loopback L3 升级为多实例、真实身份的隔离证据？

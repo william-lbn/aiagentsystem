@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**traces need stable run/tool identifiers so a trajectory can be reconstructed across components**
+生成一条可重建而非只可浏览的 Agent trajectory：每个 span 具有稳定 `run_id/span_id/parent_id/seq`，SQLite 中的每行通过前序 hash 连接；敏感属性在落盘前递归脱敏；只有链与父子图验证通过才允许导出。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13，标准库 SQLite 与 SHA-256；x86_64/arm64；
+- duration 来自 `perf_counter_ns()` 的实际测量，但本实验不对微秒级数值作跨主机断言；
+- 无模型、网络、collector 或 API key。OpenTelemetry 后端属于后续集成层，不改变本实验的证据要求。
 
 ## 环境准备
 
@@ -22,31 +19,41 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch31_observability.py`；核心机制：`src/agentlab/course_scenarios.py::observability`。
+入口为 `examples/chapters/ch31_observability.py`，核心为 `assurance_system.TamperEvidentTraceStore`：
 
-本实验输入由 `observability` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```python
+store.record(run_id="run-31", span_id="root", parent_id=None,
+             name="agent.run", operation=lambda: None)
+store.record(run_id="run-31", span_id="tool-1", parent_id="root",
+             name="tool.execute", operation=search,
+             attrs={"tool": "search", "api_key": secret})
+verified, reason = store.verify("run-31")
+trajectory = store.reconstruct("run-31")
+```
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::observability`
-- `examples/chapters/ch31_observability.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch31_observability.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "traces need stable run/tool identifiers so a trajectory can be reconstructed across components", "invariant_holds": true, "observation": {"correlated": true, "spans": [{"attrs": {"run_id": "r42", "tool": "search"}, "duration_ms": 0.001, "name": "tool.execute", "started": 1789114297.3825278}, {"attrs": {"run_id": "r42"}, "duration_ms": 0.014, "name": "agent.run", "started": 1789114297.3825257}]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "observability", "system_detected": false}
+{"span_count":2,"verified":true,"verification_reason":"VERIFIED","export_allowed":true,"secret_redacted":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- `record()` 的 parent lookup：孤儿 span 必须在写入前被拒绝；
+- `redact()`：确认秘密从未先以明文写入数据库；
+- row hash 计算：字段、顺序和前序 hash 都进入摘要；
+- `reconstruct()`：先调用 `verify()`，而不是“尽量导出”损坏记录。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；两条 span 可按 seq 重建；`verified=true`、`export_allowed=true`、`secret_redacted=true`。L1 不证明分布式 collector 不丢包，也不证明未埋点副作用不存在。
+
+## 扩展观察
+
+生产中还应为 model request、tool intent/result、checkpoint、approval、effect receipt 和 verifier verdict 建 span/event，并用低基数 metrics 聚合 SLO。Trace payload 不应保存完整 prompt、token 或个人数据；采样策略也必须保留 error/security/UNKNOWN 轨迹，否则“降低观测成本”会破坏事故证据。

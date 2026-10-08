@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**end-to-end latency is a critical path across model, tools, persistence, and retries**
+用 `perf_counter_ns()` 实测 context assembly、tool 与 persistence 三段关键路径，并将 stage budget 与 end-to-end budget 同时作为 release gate。实验不再把手填的 `120ms/80ms` 当成测量数据。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；x86_64/arm64；单进程标准库；
+- 本实验的本地微基准用于证明 instrumentation/gate，不用于比较 CPU、OS 或模型 provider；
+- 无模型、网络、Docker 或 API key；真实模型 latency/cost 需另建锁定环境的重复试验。
 
 ## 环境准备
 
@@ -22,31 +19,45 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch34_performance.py`；核心机制：`src/agentlab/course_scenarios.py::performance`。
+入口为 `examples/chapters/ch34_performance.py`；测量实现为 `assurance_system.PerformanceProbe`：
 
-本实验输入由 `performance` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```python
+probe = PerformanceProbe(
+    {"assemble": 10, "tool": 15, "persist": 10},
+    total_budget_ms=50,
+)
+report = probe.measure([
+    ("assemble", assemble_context),
+    ("tool", execute_tool),
+    ("persist", persist_checkpoint),
+])
+```
 
-## 调试断点
+每段围绕真实函数调用读取单调高分辨率时钟；release 只有在所有 stage 和 total 都通过时允许。
 
-- `src/agentlab/course_scenarios.py::performance`
-- `examples/chapters/ch34_performance.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch34_performance.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本机一次真实执行，数值允许随主机变化）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "end-to-end latency is a critical path across model, tools, persistence, and retries", "invariant_holds": true, "observation": {"slo_ms": 250, "stages": {"checkpoint_ms": 5, "model_ms": 120, "retry_ms": 0, "tool_ms": 80}, "total_ms": 205, "within_slo": true}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "performance", "system_detected": false}
+{"release_allowed":true,"stages":[{"stage":"assemble","budget_ms":10,"elapsed_ms":0.046,"within_budget":true},{"stage":"tool","budget_ms":15,"elapsed_ms":0.001,"within_budget":true},{"stage":"persist","budget_ms":10,"elapsed_ms":0.007,"within_budget":true}],"total_budget_ms":50,"total_ms":0.068,"within_budget":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- 每个 operation 前后 `perf_counter_ns()`；
+- stage budget lookup，未配置的 stage 必须失败；
+- total critical path 计算；
+- `release_allowed`，确认不是只看平均值或只看 total。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；所有 `within_budget=true` 且 `release_allowed=true`。毫秒具体值不是验收常量；在共享 CI 中只断言宽松正常预算。L1 不等于经过负载、并发、长尾或 provider 成本验证。
+
+## 真实负载扩展
+
+至少报告 warm/cold、p50/p95/p99、arrival rate、queue time、model/tool/checkpoint/retry 分解、token 与货币成本，以及 verified-success denominator。缓存命中率必须与 stale/permission leakage 一起测；并发提升必须检查 provider rate limit、workspace 冲突与 retry amplification。

@@ -52,18 +52,20 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 
 ## 项目规模与已经验证的范围
 
-| 内容 | v1.0.0 canonical release |
+| 内容 | 当前 v1.0.0 源码合同 |
 |---|---:|
-| 中文正文 | 40 章 + 11 附录，分为 7 篇 |
+| 中文正文 | 40 章 + 13 附录，分为 7 篇 |
 | Core Labs | 80 个：40 条正常路径 + 40 条故障注入路径 |
 | Python 示例 | 69 个：40 个章节入口 + 29 个支撑示例 |
-| 自动化测试 | 191 项；覆盖率由 `make coverage` 的质量门实时验证 |
+| 自动化测试 | 233 项；覆盖率由 `make coverage` 的质量门实时验证 |
 | 主书 | PDF 以当前源码构建结果为准 + EPUB + HTML |
 | 实验手册 | PDF 以当前源码构建结果为准 + EPUB + HTML |
-| 网站构建物 | 132 个 HTML 页面（当前源码构建合同） |
+| 网站构建物 | 134 个 HTML 页面（当前源码构建合同） |
 | 教学幻灯片 | 90 页 PPTX |
-| 外部来源锁 | 108 项；唯一 URL 数由 source-lock QA 实时核验 |
+| 外部来源锁 | 114 项；唯一 URL 数由 source-lock QA 实时核验 |
 | Scoped L5 外部证据 | 6 项：MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF |
+
+表中数量描述当前源码；只有在同一 commit 的 hosted canonical CI、校验和与 Release 上传全部完成后，下载区资产才继承这些数字。当前工作树的本地证据与待运行项以验证报告为准，历史 CI 不自动证明新改动。
 
 详细状态及每一种 `PASS` 能证明到哪里，见 [EXPERIMENT_STATUS.md](EXPERIMENT_STATUS.md) 与 [v1.0.0 验证报告](VALIDATION_REPORT.md)。
 
@@ -154,7 +156,7 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 | 39 | Self-Improving Agent 如何优化、评估、门禁和回滚 | [阅读](book/zh/chapters/39-self-improve.md) | [39A 正常](labs/core/lab-39A-self-improve.md) · [39B 故障](labs/core/lab-39B-self-improve-fault.md) |
 | 40 | 把 Runtime、协议、审批、恢复、评测与部署合成 AgentOps 闭环 | [阅读](book/zh/chapters/40-capstone.md) | [40A 正常](labs/core/lab-40A-capstone.md) · [40B 故障](labs/core/lab-40B-capstone-fault.md) |
 
-### 十一个附录
+### 十三个附录
 
 | 附录 | 内容 | 入口 |
 |---|---|---|
@@ -169,6 +171,8 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 | I | 第三篇七章思考题与实践题参考答案 | [阅读](book/zh/appendix-i-part3-solutions.md) |
 | J | 第四篇六章进阶问题参考答案 | [阅读](book/zh/appendix-j-part4-solutions.md) |
 | K | 第五篇两章进阶问题参考答案 | [阅读](book/zh/appendix-k-part5-solutions.md) |
+| L | 第六篇七章进阶问题参考答案 | [阅读](book/zh/appendix-l-part6-solutions.md) |
+| M | 第七篇五章进阶问题参考答案 | [阅读](book/zh/appendix-m-part7-solutions.md) |
 
 ## 运行第一个实验
 
@@ -193,7 +197,7 @@ PYTHONPATH=src uv run python examples/chapters/ch01_foundation.py --fault
 
 ```bash
 make labs       # 运行 80 个 Core Labs
-make test       # 运行 191 项 pytest
+make test       # 运行 233 项 pytest
 make examples   # 运行 69 个 Python 示例
 make validate   # 完整本地质量门与出版验证
 ```
@@ -224,7 +228,7 @@ v1.0.0 已保存 6 项范围明确的官方实现证据：
 ## 代码与工程地图
 
 ```text
-book/zh/                      40 章中文正文、11 个附录、唯一目录源
+book/zh/                      40 章中文正文、13 个附录、唯一目录源
 book/assets/diagrams/         80 个 DOT 权威图源及可审查 SVG
 src/agentlab/                 Runtime、Tool、State、Checkpoint、Journal、Eval 等核心实现
 examples/chapters/            40 个与章节逐一对应的可执行入口

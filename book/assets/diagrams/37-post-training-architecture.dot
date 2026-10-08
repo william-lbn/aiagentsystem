@@ -1,16 +1,21 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Dataset",fillcolor="#edf5ff"];
-n2 [label="Trajectory",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="SFT",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.34",ranksep="0.52"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2,fillcolor="#f8fbfd"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+runs [label="真实 runs\n成功 / 失败 / UNKNOWN",fillcolor="#fff4e6"];
+verify [label="Outcome / effect\n独立 verifier"];
+dataset [label="Trajectory registry\nprovenance + privacy",fillcolor="#edf5ff"];
+split [label="Group / time / digest\n污染门禁",fillcolor="#f6efff"];
+train [label="SFT / DPO / RFT\n候选模型"];
+eval [label="隔离 holdout\nhard safety + cost"];
+release [label="Model registry\ncanary / rollback",fillcolor="#eaf7ee"];
+quarantine [label="QUARANTINED",fillcolor="#fdecea"];
+runs->verify;
+verify->dataset;
+dataset->split;
+split->train [label="eligible"];
+split->quarantine [label="leak",color="#b03a2e"];
+train->eval;
+eval->release;
+eval->dataset [label="失败回归\n不进入 holdout",style=dashed];
 }

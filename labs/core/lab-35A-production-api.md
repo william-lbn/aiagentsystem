@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**tenant identity must constrain every read/write below the API boundary**
+启动真实 `127.0.0.1` 回环 HTTP 服务，使用 HMAC bearer token 得到 tenant identity，执行 `POST /v1/runs` 与 `GET /v1/runs/{id}`。相同 tenant + idempotency key + payload 重放必须返回同一 run；数据查询在 SQLite 层带 tenant 条件。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；标准库 `ThreadingHTTPServer`、`urllib` 与 SQLite；x86_64/arm64；
+- 服务绑定 OS 分配的临时回环端口，不访问公网；本地 sandbox 必须允许 loopback socket；
+- 不需要模型、Docker 或 API key。内置 HMAC signer 仅为边界实验，不替代生产 OIDC/JWT 验证。
 
 ## 环境准备
 
@@ -22,31 +19,46 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch35_production_api.py`；核心机制：`src/agentlab/course_scenarios.py::production_api`。
+入口为 `examples/chapters/ch35_production_api.py`；HTTP、认证与 store 位于 `assurance_system.py`：
 
-本实验输入由 `production_api` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```python
+with running_agent_service("api.db") as (service, auth, store):
+    token = auth.issue("tenant-a")
+    status, first = http_json(
+        "POST", service.base_url + "/v1/runs",
+        token=token,
+        payload={"task": "audit invoice"},
+        idempotency_key="request-35-a",
+    )
+    status, replay = http_json(...same request...)
+    assert first == replay
+```
 
-## 调试断点
+`run_id` 由 tenant 与 idempotency key 的 canonical digest 派生；相同 key 改变 payload 返回 409，不会静默复用。
 
-- `src/agentlab/course_scenarios.py::production_api`
-- `examples/chapters/ch35_production_api.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch35_production_api.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "tenant identity must constrain every read/write below the API boundary", "invariant_holds": true, "observation": {"caller": "a", "requested": "r1", "visible": [{"run": "r1", "tenant": "a"}]}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "production-api", "system_detected": false}
+{"create_status":202,"idempotent_replay":true,"requested_run":"run_3d37a81fcb836704","get_status":200,"response":{"run_id":"run_3d37a81fcb836704","state":"ACCEPTED"},"foreign_identifier_leaked":false,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- Authorization header 解析与 constant-time signature compare；
+- `ProductionRunStore.create` 的 `(tenant,idempotency_key)` 唯一约束；
+- payload digest conflict 分支；
+- `get()` SQL 的 tenant + run_id 双条件。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；两次 POST 都是 202 且 body 相同；GET 为 200；`foreign_identifier_leaked=false`。L1 只证明本机 HTTP/SQLite 正常路径，不代表 TLS、OIDC、网关、队列或多实例部署已验证。
+
+## 生产迁移
+
+真实 API 还需 TLS、OIDC audience/issuer/key rotation、请求 schema/size limit、rate limit、async queue、approval endpoint、audit/effect linkage、pagination、retention 与 deletion policy。不要把 provider API key 暴露给客户端；服务端 credential broker 按 tenant/policy 获取最小权限短期凭据。

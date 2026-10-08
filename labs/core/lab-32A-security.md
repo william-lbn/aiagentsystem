@@ -2,16 +2,13 @@
 
 ## 实验目标
 
-验证不变量：**tool output and retrieved content are data, not higher-priority instructions**
+验证两道相互独立的安全边界：检索/工具内容始终以 `UNTRUSTED_DATA` 类型进入 data channel；外部 effect 只有在 authenticated principal 的 `(tool, resource)` capability 精确匹配时才提交。正常路径允许 researcher 对 `invoice-7` 执行摘要。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13；标准库；x86_64/arm64；
+- 无模型、网络、Docker 或 API key；固定 fixture 用于隔离 control plane；
+- 真实模型只能提出 `ToolIntent`，无权修改 trust label、grant 或 `AuthorizationDecision`。
 
 ## 环境准备
 
@@ -22,31 +19,43 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch32_security.py`；核心机制：`src/agentlab/course_scenarios.py::security`。
+入口为 `examples/chapters/ch32_security.py`；核心为 `ContentEnvelope` 与 `CapabilityGateway`：
 
-本实验输入由 `security` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+```python
+instruction = ContentEnvelope("operator", "TRUSTED_INSTRUCTION", "text/plain", "Summarize invoice-7")
+retrieved = ContentEnvelope("retrieval:web", "UNTRUSTED_DATA", "text/html", invoice)
+context = gateway.assemble_context(instruction, [retrieved])
+decision = gateway.authorize(
+    "researcher",
+    ToolIntent("documents.summarize", "invoice-7", {"style": "brief"}),
+)
+```
 
-## 调试断点
+安全性不依赖在文本中搜索 `ignore policy`；即使 data 内容是自然语言命令，它也不获得 capability。
 
-- `src/agentlab/course_scenarios.py::security`
-- `examples/chapters/ch32_security.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch32_security.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "tool output and retrieved content are data, not higher-priority instructions", "invariant_holds": true, "observation": {"action": "treat_as_data", "trusted": {"instruction": "summarize the page"}, "untrusted": "invoice total is 42"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "security", "system_detected": false}
+{"channels":["instruction","data"],"authorization":"CAPABILITY_MATCH","effect_count":1,"secret_redacted":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- `ContentEnvelope.__post_init__`：拒绝未知 trust label；
+- `assemble_context`：确认 instruction/data channel 不可由检索内容互换；
+- `authorize`：匹配 principal、tool 与 resource 三者；
+- audit append 前：arguments 中 token/secret 已递归脱敏。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；channels 严格为 `instruction,data`；正常 intent 返回 `CAPABILITY_MATCH`；effect count 恰为 1；审计无秘密。L1 不代表已经覆盖所有 prompt injection 变体。
+
+## 生产迁移
+
+Capability 应由服务身份/IAM/短期 token 产生，不放在 system prompt；工具 schema 应限制参数、资源 namespace、金额与次数；高风险 effect 增加人工审批和事务日志；浏览器/代码执行继续使用 OS/container sandbox 与 egress policy。模型层 guardrail 是附加检测器，不是授权根。

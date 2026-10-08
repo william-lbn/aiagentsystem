@@ -1,17 +1,18 @@
-# Lab 40A — 综合案例：AgentOps 平台的端到端闭环｜正常路径
+# Lab 40A — Capstone：权限、审批、唯一副作用与独立验证｜正常路径
 
 ## 实验目标
 
-验证不变量：**a production agent run is complete only after effect, evidence, and verifier state converge**
+运行真实 SQLite 状态链与独立 provider SQLite：实验主体拥有精确 capability，调用方提供的审批夹具绑定 canonical intent digest，远端只提交一个 effect，最后由 verifier 复核 receipt、effect count 和 tamper-evident event chain 后进入 `COMPLETED`。本实验不验证真实人审身份或签名。
+
+## 可证伪假设与不变量
+
+不变量：最终文本、状态名或模型 claim 都不能单独表示完成；authority、approval、effect、trace 与 verifier 必须同时闭合。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+- Python 3.11–3.13，x86_64/arm64；标准库 SQLite；
+- 不需要模型、Docker、网络或 API key；
+- 两个数据库真实分离本地 coordinator 与 provider，仍不等价于真实 SaaS 的网络/一致性语义。
 
 ## 环境准备
 
@@ -22,31 +23,41 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch40_capstone.py`；核心机制：`src/agentlab/course_scenarios.py::capstone`。
+```python
+orchestrator = CapstoneOrchestrator(workdir)
+approval = orchestrator.demonstration_approval("run-capstone")
+result = orchestrator.run("run-capstone", approval=approval)
+assert result["path"][-1] == "COMPLETED"
+assert result["approval_bound"] and result["capability_allowed"]
+assert result["effect_count"] == 1 and result["trace_verified"] and result["verified"]
+orchestrator.close()
+```
 
-本实验输入由 `capstone` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::capstone`
-- `examples/chapters/ch40_capstone.py::main`
-
-## 实验 A：正常路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch40_capstone.py
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "a production agent run is complete only after effect, evidence, and verifier state converge", "invariant_holds": true, "observation": {"path": ["RECEIVED", "TRIAGED", "EVIDENCE_COLLECTED", "WAITING_APPROVAL", "APPLIED", "VERIFIED"], "terminal": "VERIFIED"}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "capstone", "system_detected": false}
+{"path":["RECEIVED","TRIAGED","PLANNED","WAITING_APPROVAL","EXECUTING","VERIFYING","COMPLETED"],"capability_allowed":true,"approval_bound":true,"effect_count":1,"recovery_used":false,"trace_verified":true,"verified":true,"evidence_level":"L1_MECHANISM"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=false`、`invariant_holds=true`；`evidence_level=L1_MECHANISM` 只证明该确定性 fixture 的正常机制断言成立，不等价于真实外部框架、网络或生产环境已经通过互操作、故障恢复或压力验证。
+- capability 对 principal/action/resource 的精确匹配；
+- approval receipt 的 intent digest；
+- effect key 与 provider unique constraint；
+- event hash chain 和 verifier 收敛条件。
 
-### 结果解释
+## 验收标准
 
-这个结果只证明本仓库确定性 fixture 在上述机制上满足预期，不外推成第三方模型或云服务性能结论。
+退出码 0；状态按允许边推进到 `COMPLETED`；本地 capability 与审批字段绑定都为真；effect count 恰为 1；chain/verifier 为真。L1 证明本地端到端机制，不声称真实人审或真实 provider 已运行。把审批 `run_id` 改成另一 run 时，必须在 `EXECUTING` 前失败且 provider effect count 为 0。
+
+## 反例与进阶注入
+
+- 把 local/provider 换成不同容器和网络，再重演 timeout/crash；
+- 接入 OpenAI 或小型开源模型只负责 proposal，保留同一 capability/effect/verifier；
+- 引入多租户 API、审计导出、人工审批服务和真实 ticket sandbox，形成 L5 外部证据。

@@ -55,6 +55,7 @@ jobs:
       - run: .venv/bin/python scripts/qa_external_benchmark_contracts.py
       - run: .venv/bin/python scripts/qa_builder_contract.py
       - run: .venv/bin/python scripts/qa_content_semantics.py
+      - run: .venv/bin/python scripts/generate_chapter_audit_matrix.py --check
       - run: .venv/bin/python scripts/qa_quarto_config.py
       - run: .venv/bin/python scripts/qa_git_index.py
       - run: make dependency-audit

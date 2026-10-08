@@ -2,15 +2,16 @@ digraph G {
 graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
 node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
 edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Trace span",fillcolor="#edf5ff"];
-n2 [label="Metric",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Log",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+runtime [label="Runtime / Tools / Effects\nstructured events",fillcolor="#fff4e6"];
+identity [label="Identity graph\nrun · span · parent · seq",fillcolor="#edf5ff"];
+redact [label="Pre-write redaction\nprovenance · data class",fillcolor="#eef9f1"];
+trace [label="Trace / Audit store\nhash chain · artifacts",fillcolor="#f6efff"];
+metrics [label="Low-cardinality metrics\nSLO · cost · errors",fillcolor="#edf5ff"];
+consumer [label="Eval · Incident · Security\nverified export only",fillcolor="#f7f9f9"];
+runtime->identity;
+identity->redact;
+redact->trace;
+trace->consumer;
+trace->metrics;
+metrics->consumer;
 }

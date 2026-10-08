@@ -1,17 +1,16 @@
-# Lab 39B — Self-Improving Agent：优化、验证与回滚｜故障注入
+# Lab 39B — Self-Improving Agent：配对评测、Canary 与版本提升｜故障注入
 
 ## 实验目标
 
-验证不变量：**self-modification requires an external evaluation gate and a reversible rollout**
+候选通过离线 gate，但 canary 独立 verifier 发现一条安全违规。验证 active pointer 回到 `policy-v1`，候选记录为 `ROLLED_BACK`，而不是因离线均值较高继续扩大流量。
+
+## 可证伪假设与故障位置
+
+离线分布无法覆盖线上状态、工具与攻击。本实验把 canary verifier 失败作为**注入的观察值**，不是少量真实用户流量；内存状态机必须保留 baseline。真实发布还要冻结扩容并把 incident 写入回归集。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 39A 相同。fault 是可审计的 canary observation；没有虚构在线用户流量或模型结果。
 
 ## 环境准备
 
@@ -22,31 +21,39 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch39_self_improve.py`；核心机制：`src/agentlab/course_scenarios.py::self_improve`。
+```python
+rollout = CanaryRollout("policy-v1")
+rollout.start("policy-v2", eligible_decision)
+action = rollout.finish(verifier_passed=False, safety_violations=1)
+assert action == "ROLLED_BACK"
+assert rollout.active_version == "policy-v1"
+```
 
-本实验输入由 `self_improve` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::self_improve`
-- `examples/chapters/ch39_self_improve.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch39_self_improve.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": true, "evidence_level": "L3_CONTAINED", "evidence_meaning": "fault_detected_and_contained", "fault": true, "fault_injected": true, "invariant": "self-modification requires an external evaluation gate and a reversible rollout", "invariant_holds": true, "observation": {"action": "rollback", "baseline": {"cost": 10, "success": 8}, "candidate": {"cost": 11, "success": 7}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "self-improve", "system_detected": true}
+{"offline_gate":{"status":"CANARY_ELIGIBLE","success_delta":0.25,"cost_ratio":1.025,"eligible":true},"canary_action":"ROLLED_BACK","active_version":"policy-v1","history":["ACTIVE:policy-v1","CANARY:policy-v2","ROLLED_BACK:policy-v2"],"system_detected":true,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L3_CONTAINED`**：被测组件显式检测故障并 fail-closed/阻断错误继续扩散；不声明已经恢复业务结果。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- offline eligible 与 online promote 必须是不同状态；
+- safety violation 是否立即阻断流量扩大；
+- rollback 是否只切指针、不删除失败 evidence；
+- active version 查询是否可能被 cache/stale config 延迟。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0；offline gate 仍为 eligible；canary action 为 `ROLLED_BACK`；单进程 active version 为 v1；证据为内存状态机的 L3。L3 不表示候选造成的任何外部 effect 已自动补偿，也不证明跨进程持久回滚。
+
+## 反例与进阶注入
+
+- rollout 过程中进程崩溃，重启后根据 durable active pointer 收敛；
+- 多区域配置传播不一致，验证 kill switch 与版本 fencing；
+- 将 canary incident 固化为 held-out regression，但防止再次进入训练 split。

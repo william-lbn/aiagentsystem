@@ -5,21 +5,21 @@
 | Category | Count | Status / Claim Ceiling |
 |---|---:|---|
 | Core Labs | 80 | **VERIFIED — 80/80**；40 normal + 40 fault |
-| Fault evidence | 40 | 14 `L2_ORACLE_ONLY` / 2 `L2_DETECTED` / 23 `L3_CONTAINED` / 1 `L4_RECOVERED` |
+| Fault evidence | 40 | 37 `L3_CONTAINED` / 3 `L4_RECOVERED`; no oracle-only case is promoted as containment |
 | Python examples | 69 | **VERIFIED — 69/69** |
-| Pytest | 114 | **VERIFIED — 114/114**；90% line coverage；含 HITL、crash window、CAS、journal corruption/concurrency、MCP 2026 wire contract 与支撑模块 |
-| Main book | 462 A4 pages | **VERIFIED** — PDF/HTML/EPUB + structure QA |
-| Website | 127 HTML pages | **VERIFIED** |
-| Workbook | 164 A4 pages | **VERIFIED** — PDF/HTML/EPUB + structure QA |
-| Slides | 90 | **VERIFIED** — PPTX structure QA |
-| Source locks | 100 | **VERIFIED** — closed-world coverage for chapter/appendix external URLs |
+| Pytest | 237 | **VERIFIED — 237/237**；89.81% coverage；含 HTTP loopback、HITL、effect reconciliation、dataset leakage、cancellation epoch、canary rollback 与 durable capstone |
+| Main book | 328 A4 pages | **VERIFIED LOCALLY** — Pandoc compatibility PDF/HTML/EPUB + structure QA |
+| Website | 134 HTML pages | **VERIFIED LOCALLY** |
+| Workbook | 135 A4 pages | **VERIFIED LOCALLY** — PDF/HTML/EPUB + structure QA |
+| Slides | 90 | **STRUCTURE VERIFIED ONLY** — PPTX 保留中文及东亚字体声明；本机 headless LibreOffice 转 PDF 时 CJK 字形缺失，不能宣称视觉验收通过，需在目标演示软件复核 |
+| Source locks | 114 | **VERIFIED** — 106 references / 44 unique chapter/appendix external URLs，plus one `.invalid` fixture allowlist |
 | Upstream behavior contracts | 10 | **DEFINED, NOT EXECUTED** — `EXTERNAL_NOT_RUN_IN_THIS_RELEASE` |
 | Scoped official implementation evidence | 6 | **VERIFIED** — MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF；每项均保留独立 claim ceiling |
 | External coding/browser benchmarks | 2 | **PINNED CONTRACTS; NOT EXECUTED** — SWE-bench Lite / WebArena；没有发布分数 |
 | Cross-host canonical comparison | 2-host diagnostic | **OUTSIDE RELEASE CLAIM / WORKFLOW REMOVED** — 两端结构与内容 QA 通过，但 Quarto Bootstrap CSS 字节排序不同；v1.0.0 不发布 bit-for-bit 声明 |
-| Canonical Quarto container | 1 digest-pinned path | **VERIFIED IN GITHUB HOSTED CI** — Quarto 1.11.1；484-page book / 165-page workbook / 127-page site / 90-slide deck |
-| Same-host SOURCE-CLEAN rebuild | 2 cold caches / 134 files | **VERIFIED, FORMAT-AWARE** — 两次 bootstrap、原生依赖导入；130 个原始 SHA-256、2 个 PDF 语义/渲染指纹、2 个 EPUB payload 指纹一致 |
-| Production Docker/Compose path | 1 | **CODE/TEST COVERED; NOT CLAIMED AS CLOUD/PRODUCTION E2E** |
+| Canonical Quarto container | 1 digest-pinned path | **PENDING FOR THIS WORKTREE** — 历史 CI 结果不冒充当前 Part VI–VII 重写后的结果 |
+| Same-host SOURCE-CLEAN rebuild | 2 cold caches | **PENDING FOR THIS WORKTREE** — 旧证据保留但不作为当前源码声明 |
+| Production Docker/Compose path | 1 | **STATIC CONTRACT + CODE/TEST COVERED**；校验实际 `IMAGE_LOCK.json` 声明与 Dockerfile base 一致；本机 Docker daemon 未运行，未宣称真实 registry push、签名、SBOM、amd64/arm64 双平台运行或云端 E2E |
 
 ## Evidence semantics
 

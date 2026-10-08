@@ -1,17 +1,16 @@
-# Lab 36B — 部署工程：Docker、本地开发与 CI 验证｜故障注入
+# Lab 36B — 部署工程：镜像身份、端口、健康与多架构契约｜故障注入
 
 ## 实验目标
 
-验证不变量：**deployment configuration is part of the executable system and must be tested for consistency**
+只在内存中把 Compose 容器端口从 8010 改为 8000，保持 Dockerfile 的 `EXPOSE` 与启动命令不变。验证发布 gate 在构建之前明确指出 `port_contract=false` 并阻断 release。
+
+## 可证伪假设与故障位置
+
+故障位于 service discovery 与进程监听边界。若 CI 只验证 YAML 可解析或镜像能 build，错误会推迟到上线后才暴露；被测 gate 必须自己检测并 fail closed。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 36A 相同。不会改写磁盘上的 Compose 文件，也不依赖 Docker daemon；fault fixture 的 source digest 与正常路径不同，可供审计。
 
 ## 环境准备
 
@@ -22,31 +21,48 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch36_deployment.py`；核心机制：`src/agentlab/course_scenarios.py::deployment`。
+```python
+import json
+from pathlib import Path
 
-本实验输入由 `deployment` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+root = Path.cwd()
+dockerfile_path = root / "production/agentops_service/Dockerfile"
+compose_path = root / "docker-compose.yml"
+lock_path = root / "production/agentops_service/IMAGE_LOCK.json"
+dockerfile = dockerfile_path.read_text()
+compose = compose_path.read_text().replace('"8010:8010"', '"8010:8000"')
+image_lock = json.loads(lock_path.read_text())
+evidence = DeploymentGate().inspect(dockerfile, compose, image_lock=image_lock)
+decision = DeploymentGate().verify(evidence)
+assert decision.status == "BLOCKED"
+assert decision.checks["port_contract"] is False
+```
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::deployment`
-- `examples/chapters/ch36_deployment.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch36_deployment.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "deployment configuration is part of the executable system and must be tested for consistency", "invariant_holds": false, "observation": {"compose_host": 8000, "expose": 8010, "health": "/healthz"}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "deployment", "system_detected": false}
+{"status":"BLOCKED","checks":{"base_digest_pinned":true,"port_contract":false,"semantic_healthcheck":true,"non_root":true,"multi_arch_declared":true,"image_lock_matches":true,"source_fingerprint_present":true},"ports":{"exposed":8010,"command":8010,"compose_host":8010,"compose_container":8000},"system_detected":true,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- fault replacement 后磁盘文件保持不变；
+- `compose_container_port=8000` 而 exposed/command 仍为 8010；
+- `release_allowed` 从 true 变 false；
+- 输出只包含配置证据，不包含环境 secret。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0；恰由 `port_contract` 失败触发 `BLOCKED`；`system_detected=true`、`contained=true`、`evidence_level=L3_CONTAINED`。这证明错误发布被阻断，不证明线上已有旧版本被自动回滚。
+
+## 反例与进阶注入
+
+- 删除 base digest、改回 root、移除 healthcheck，确认每个原因可独立定位；
+- 镜像支持 amd64 但漏 arm64 manifest，确认外部 registry gate 阻断；
+- 模拟 probe 只检查 TCP 端口而数据库不可写，比较 liveness/readiness 的差异。

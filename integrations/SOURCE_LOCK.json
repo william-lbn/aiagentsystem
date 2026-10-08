@@ -646,5 +646,41 @@
     "pin": "2026-06; observed 2026-09-11",
     "url": "https://www.weforum.org/stories/2026/06/agentic-ai-manufacturing/",
     "use": "industrial agent adoption and governance"
+  },
+  "dpo-2023": {
+    "name": "Direct Preference Optimization",
+    "pin": "arXiv:2305.18290 / NeurIPS 2023; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2305.18290",
+    "use": "preference optimization objective and post-training comparison"
+  },
+  "interruptbench-2026": {
+    "name": "InterruptBench: Interruptible Agents in Long-Horizon Web Navigation",
+    "pin": "arXiv:2604.00892; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2604.00892",
+    "use": "mid-task addition, revision and retraction evaluation"
+  },
+  "oci-image-spec": {
+    "name": "Open Container Initiative Image Specification",
+    "pin": "main specification observed 2026-09-11",
+    "url": "https://github.com/opencontainers/image-spec",
+    "use": "content-addressed image manifest and multi-platform image index"
+  },
+  "omniinteract-2026": {
+    "name": "OmniInteract: Real-World Streaming Interaction for Real-Time Omnimodal Assistants",
+    "pin": "arXiv:2605.26485; observed 2026-09-11",
+    "url": "https://arxiv.org/abs/2605.26485",
+    "use": "streaming multimodal timing and interruption evaluation"
+  },
+  "openai-developer-docs": {
+    "name": "OpenAI API official developer documentation",
+    "pin": "official documentation observed 2026-09-11",
+    "url": "https://developers.openai.com/api",
+    "use": "Realtime API, fine-tuning and provider integration contracts"
+  },
+  "slsa-1.2": {
+    "name": "Supply-chain Levels for Software Artifacts specification",
+    "pin": "SLSA v1.2; observed 2026-09-11",
+    "url": "https://slsa.dev/spec/v1.2",
+    "use": "source and build provenance, artifact verification and builder trust"
   }
 }

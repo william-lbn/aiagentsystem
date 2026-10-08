@@ -2,16 +2,15 @@
 
 ## 实验目标
 
-验证不变量：**end-to-end latency is a critical path across model, tools, persistence, and retries**
+在 tool stage 注入真实约 30ms 延迟，而该段预算为 15ms。验证测量器定位到具体 stage，并由 release gate 阻止超预算构建；不是事后打印一条慢日志仍继续发布。
+
+## 可证伪假设与故障位置
+
+若系统只检查总平均、只检查最终成功或使用手填 timing，局部尾延迟可能被掩盖。本实验保持 assemble/persist 正常，仅改变 tool critical path，使故障归因可验证。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 34A 相同。`sleep(0.03)` 是显式故障注入，elapsed 仍由时钟实测；调度器可能使数值高于 30ms，因此不设等值断言。
 
 ## 环境准备
 
@@ -22,31 +21,42 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch34_performance.py`；核心机制：`src/agentlab/course_scenarios.py::performance`。
+```python
+operations = [
+    ("assemble", assemble_context),
+    ("tool", lambda: measured_delay(0.03)),
+    ("persist", persist_checkpoint),
+]
+report = probe.measure(operations)
+assert not report.release_allowed
+```
 
-本实验输入由 `performance` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
-
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::performance`
-- `examples/chapters/ch34_performance.py::main`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch34_performance.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本机一次真实执行，数值允许随主机变化）
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "end-to-end latency is a critical path across model, tools, persistence, and retries", "invariant_holds": false, "observation": {"slo_ms": 250, "stages": {"checkpoint_ms": 5, "model_ms": 120, "retry_ms": 200, "tool_ms": 80}, "total_ms": 405, "within_slo": false}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "performance", "system_detected": false}
+{"release_allowed":false,"stages":[{"stage":"assemble","within_budget":true},{"stage":"tool","budget_ms":15,"elapsed_ms":30.788,"within_budget":false},{"stage":"persist","within_budget":true}],"total_budget_ms":50,"total_ms":30.924,"within_budget":false,"system_detected":true,"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L2_ORACLE_ONLY`**：独立 oracle 成功观察到故障；**不证明系统已经检测、约束或恢复该故障**。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- delay 调用前后确认实际 elapsed；
+- tool stage 比较 `elapsed_ms > 15`；
+- total 即使仍小于 50，也必须因 stage breach 失败；
+- release path 确认未被调用。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0；tool stage `within_budget=false`，assemble/persist 仍正常；整个 report `within_budget=false`、`release_allowed=false`、`evidence_level=L3_CONTAINED`。注意：本次示例 total 约 31ms，小于 50ms，但仍被局部 SLO 阻断，这正是实验重点。
+
+## 反例与进阶注入
+
+- 注入 queue wait、provider 429 + backoff、checkpoint fsync 与 cache miss，分别归因；
+- 重复至少 30 次并报告分位数/置信区间；
+- 在固定 verified success 下比较小模型、本地模型与 OpenAI 远程模型的成本—质量前沿；
+- 检查 timeout/cancel 后后台 tool 是否仍消耗资源，避免“客户端快失败、服务端继续烧钱”。

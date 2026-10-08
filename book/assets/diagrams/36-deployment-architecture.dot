@@ -1,16 +1,22 @@
 digraph G {
-graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.4",ranksep="0.55"];
-node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=17,color="#34495e",penwidth=1.2];
-edge [fontname="Noto Sans CJK SC",fontsize=11,color="#5d6d7e"];
-n0 [label="问题/输入",fillcolor="#fff4e6"];
-n1 [label="Container",fillcolor="#edf5ff"];
-n2 [label="Config",fillcolor="#edf5ff"];
-n3 [label="Runtime/控制边界",fillcolor="#eef9f1"];
-n4 [label="Health check",fillcolor="#f6efff"];
-n5 [label="证据/Verifier",fillcolor="#f7f9f9"];
-n0->n1;
-n1->n2;
-n2->n3;
-n3->n4;
-n4->n5;
+graph [rankdir=LR,bgcolor="transparent",pad="0.15",nodesep="0.34",ranksep="0.52"];
+node [shape=box,style="rounded,filled",fontname="Noto Sans CJK SC",fontsize=15,color="#34495e",penwidth=1.2,fillcolor="#f8fbfd"];
+edge [fontname="Noto Sans CJK SC",fontsize=10,color="#5d6d7e"];
+source [label="Source revision\nlock + policy",fillcolor="#fff4e6"];
+builder [label="Locked builder\nSBOM + provenance",fillcolor="#edf5ff"];
+index [label="OCI image index",fillcolor="#eef9f1"];
+amd [label="linux/amd64\nmanifest digest"];
+arm [label="linux/arm64\nmanifest digest"];
+runtime [label="Runtime config\nUID / port / volume",fillcolor="#f6efff"];
+state [label="Checkpoint / lease\neffect identity"];
+verify [label="External health\ncanary + verifier",fillcolor="#eaf7ee"];
+source->builder;
+builder->index;
+index->amd;
+index->arm;
+amd->runtime;
+arm->runtime;
+runtime->state;
+state->verify;
+builder->verify [label="attestation",style=dashed];
 }

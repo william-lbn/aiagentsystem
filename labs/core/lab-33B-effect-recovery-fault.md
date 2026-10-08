@@ -2,16 +2,15 @@
 
 ## 实验目标
 
-验证不变量：**UNKNOWN must be reconciled against actual state before retry or compensation**
+精确注入“远端已提交、本地确认丢失”的经典崩溃窗口。runtime 只能写 `UNKNOWN`，关闭并重开本地 coordinator 后必须查询远端 durable state，修复为 `COMMITTED`；随后重复 execute 仍不能二次扣款。
+
+## 可证伪假设与故障位置
+
+故障发生在 `remote.apply()` 返回之后、本地 receipt commit 之前。把 timeout 当 `NOT_APPLIED` 会重复 effect；把它当 `COMMITTED` 又可能掩盖真实未提交。唯一安全结论是 UNKNOWN，随后 observation/reconciliation。
 
 ## 环境与版本
 
-- OS：macOS 13+/Ubuntu 22.04+/WSL2；核心实验不依赖特定内核特性。
-- CPU：x86_64 或 arm64；2 核即可。
-- Memory：建议 ≥ 4 GiB。
-- Python：3.11–3.13；本次发布 QA 使用 Python 3.13.5。
-- 核心依赖：AgentLab 本仓库；不需要 API Key、Docker、浏览器或外网。
-- 调试器：VS Code Python / PyCharm / `python -m pdb` 均可。
+与 Lab 33A 相同。实验真实关闭并重开本地 SQLite 连接，证明恢复不依赖进程内变量；远端数据库保持独立 durable state。
 
 ## 环境准备
 
@@ -22,33 +21,46 @@ uv sync --locked --all-groups --no-install-project
 
 ## 实验代码
 
-入口：`examples/chapters/ch33_effect_recovery.py`；核心机制：`src/agentlab/course_scenarios.py::effect_recovery`。
+```python
+try:
+    coordinator.execute("charge-33", "charge_cents", 4200, lose_ack=True)
+except EffectOutcomeUnknown:
+    assert coordinator.status("charge-33") == "UNKNOWN"
+coordinator.close()
 
-本实验输入由 `effect_recovery` 中固定 fixture 定义，保证每次运行能够比较同一状态转移。
+reopened = EffectCoordinator(local_db, remote)
+assert reopened.reconcile("charge-33") == "COMMITTED"
+receipt = reopened.execute("charge-33", "charge_cents", 4200)
+assert remote.count("charge-33") == 1
+```
 
-## 调试断点
-
-- `src/agentlab/course_scenarios.py::effect_recovery`
-- `examples/chapters/ch33_effect_recovery.py::main`
-- `src/agentlab/runtime.py::AgentRuntime.run`
-- `src/agentlab/tools.py::ToolRegistry.execute`
-
-## 实验 B：故障注入路径
+## 执行步骤
 
 ```bash
 PYTHONPATH=src uv run python examples/chapters/ch33_effect_recovery.py --fault
 ```
 
-### 实际验证输出（本发布包 QA 生成）
+## 实际验证输出（本发布源码执行所得）
 
 ```json
-{"contained": true, "evidence_level": "L4_RECOVERED", "evidence_meaning": "fault_detected_contained_and_reconciled", "fault": true, "fault_injected": true, "invariant": "UNKNOWN must be reconciled against actual state before retry or compensation", "invariant_holds": true, "observation": {"journal_valid": true, "observed": "COMMITTED", "reconciled": "COMMITTED", "reported": "UNKNOWN"}, "oracle_detected": true, "passed": true, "recovered": true, "scenario": "effect-recovery", "system_detected": true}
+{"reported_before_reconcile":"UNKNOWN","reconciled":"COMMITTED","receipt":"rcpt_046c902140291034","remote_effect_count":1,"system_detected":true,"contained":true,"recovered":true,"evidence_level":"L4_RECOVERED"}
 ```
 
-### 验收标准
+## 调试断点
 
-PASS 当且仅当：进程退出码为 0；JSON 中 `passed=true`、`fault=true`、`oracle_detected=true`。本实验的证据等级为 **`L4_RECOVERED`**：故障被检测、约束，并通过 observation/reconciliation 恢复到可验证状态。 `passed=true` 仅表示“实验 oracle 得到了预期观察”，不得脱离上述证据字段解释为生产级故障恢复成功。
+- remote transaction commit 后立刻注入 `lose_ack`；
+- 本地 `UNKNOWN` durable write；
+- 关闭/重开后 `remote.lookup(key)`；
+- reconcile 写回 receipt；
+- 最后重放确认 remote count 仍为 1。
 
-### 进阶修改
+## 验收标准
 
-把 fixture 中的故障位置向前或向后移动一步，重新运行并记录状态变化；说明新的恢复点为什么不同。
+退出码 0；reconcile 前为 UNKNOWN、之后为 COMMITTED；receipt 非空；远端 count 恰为 1；`recovered=true`、`evidence_level=L4_RECOVERED`。只有“检测到 timeout”不够；必须证明重启后通过外部 observation 恢复且无重复 effect。
+
+## 反例与进阶注入
+
+- 让远端实际未提交，reconcile 应得到 `NOT_COMMITTED`，随后才可重试；
+- 重用同 key 但改变 amount，必须拒绝；
+- 在 reconcile 后、本地修复前再次 crash，下一次恢复仍应收敛；
+- provider 无查询 API 时进入人工处置，不能用模型推测 effect 状态。

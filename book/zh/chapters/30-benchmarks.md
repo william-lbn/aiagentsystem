@@ -1,390 +1,204 @@
 # SWE-bench、OSWorld、PaperBench 与 MLE-bench
 
-> **本章核心判断**：Benchmark 的核心不是 leaderboard，而是把真实任务转成可执行、可评分、可复盘的实验环境。
+> **本章核心判断**：Benchmark 不是一个分数，而是任务分布、环境 snapshot、harness、verifier、资源预算与统计协议的整体。只有这些身份一致，结果才可比较；只有官方/独立 verifier 真正运行，结果才可发布。
 
-上一章：Agent Evaluation：从最终答案到轨迹验证。本章把前一章已经建立的能力进一步推进到 `Fixture`；下一章将进入：Tracing、Metrics 与 AgentOps。
+第 29 章定义了单个 task 如何被验证。本章研究 task 集合如何形成有效比较，并以 coding、computer use、research reproduction 与 ML engineering 四类真实环境为主线。下一章将建立产生这些证据的 observability 系统。
 
-![SWE-bench、OSWorld、PaperBench 与 MLE-bench：系统边界与组件关系](../../assets/diagrams/30-benchmarks-architecture.svg)
+![Benchmark 从 task corpus、环境、agent 到 verifier 的完整边界](../../assets/diagrams/30-benchmarks-architecture.svg)
 
 ## 问题背景与学习目标
 
-Benchmark 的核心不是 leaderboard，而是把真实任务转成可执行、可评分、可复盘的实验环境。
+Agent benchmark 的分数混合了至少五种因素：基础模型、Agent scaffold、工具/上下文、环境基础设施和 grader。若其中任何一项悄悄改变，“分数提高”就不再具有明确因果解释。Coding Agent 可能利用错误 tests；Browser Agent 可能面对变化的网站；research benchmark 的 rubric 可能奖励形式而非可复现 artifact；ML Agent 可能因硬件/时间预算不同获得优势。
 
-在本章的 `Fixture` 场景中，真实 Agent 系统与普通“问答程序”的差异，在于一次任务会跨越模型、工具、状态、外部环境和人工治理边界。本章所有原理、代码与实验都围绕这些可验证问题展开。
+本章完成后，读者应能：
 
-
-**本章完成标准：**
-
-- **机制理解**：能够解释“Benchmark 的核心不是 leaderboard，而是把真实任务转成可执行、可评分、可复盘的实验环境。”，并指出它对应的确定性软件边界；
-- **正确性判断**：能够针对 `benchmark claims require a fixed task, environment snapshot, and independent verifier` 构造一个反例，说明证据不足时系统为什么不能继续乐观执行；
-- **实验与迁移**：运行 `Lab 30A` / `Lab 30B`，分别说明 normal/fault 的 evidence level，并把同一机制映射到至少一个上游实现或协议。
+- 识别 benchmark 测量对象，而不是按排行榜名称推断通用能力；
+- 构造包含 task/environment/verifier/harness/seed 的 manifest；
+- 在评分前执行 comparability gate，并对 drift fail closed；
+- 报告样本区间、失败 taxonomy、成本和资源，而非只报 point score；
+- 区分 `NOT_EXECUTED`、`FAILED_PREFLIGHT`、`UNSUPPORTED` 与真实 0 分；
+- 设计真实 SWE-bench/browser smoke run 的证据包，且不伪造外部成绩。
 
 ## 核心概念与系统直觉
 
-本节不把概念当作术语清单，而是回答三个工程问题：它**是什么**、在系统里**负责什么**、以及它失效时**会留下什么可观测证据**。
+> **Invariant**：一个 benchmark score 只有在 task set、environment、verifier、harness revision、seed/采样协议和资源预算被固定时才可发布或比较。
 
-### Fixture
+**Instance** 是可独立执行和验证的最小任务。SWE-bench instance 不是一段 issue 文本，而是 issue、repo/base commit、test patch 与环境；Browser instance 还包含站点数据、账户和 reset 状态。
 
-**定义。** 为 benchmark 固定的输入、仓库、数据、页面或初始环境，是重复比较的起点。
+**Harness** 把 Agent 连接到环境。它决定 observation、action schema、timeout、重试、上下文长度、文件/网络权限和 termination；因此 scaffold/harness 本身就是被测系统的一部分。
 
-**系统责任。** Fixture 应可版本化、可重建并排除隐藏状态；动态外部依赖需快照或记录不可复现部分。
+**Verifier** 将 artifact 和环境终态映射为 outcome。Coding benchmark 用 tests，并不表示 tests 永远正确；browser evaluator 可能同时使用 URL、DOM 与后台数据库；研究复现需要 rubric 与 artifact evidence。
 
-**失败边界。** fixture 漂移会让不同时间的模型分数不可比；损坏 task 还会把 benchmark 噪声误解释为模型能力。
+**Manifest** 是比较身份。显示名称、Docker tag 或“同一 dataset”不足以做身份；应使用 content digest、commit、image digest、instance IDs 与 evaluator revision。
 
-### Environment
-
-**定义。** Agent 真正执行动作并产生 observation/effect 的可控世界，例如 repo、OS、browser、 scientific sandbox。
-
-**系统责任。** Environment 决定 benchmark 是否测到真实交互能力，并需定义网络、时间、权限、reset 和 nondeterminism。
-
-**失败边界。** 过度简化环境会造成 leaderboard 与生产脱节；环境不隔离则一次 submission 会污染后续任务。
-
-### Submission
-
-**定义。** 一次被评估的完整运行，包括模型、harness、配置、轨迹、artifact 与版本信息。
-
-**系统责任。** Submission 应保存足够 metadata 支持复验，避免只公布一个 aggregate score。
-
-**失败边界。** 若不同 submission 使用不同未披露 tool/harness 或 human intervention，模型分数比较就失去意义。
-
-### Scoring
-
-**定义。** 把环境结果、artifact、trajectory、成本和风险映射到指标的规则。
-
-**系统责任。** Scoring 要区分 task success、partial credit、efficiency 与 safety，并报告置信区间/任务覆盖，而不是单一总分。
-
-**失败边界。** 测试损坏、grader 漏洞或过度拟合都会让高分失真；aggregate 还可能掩盖某类任务完全失败。
+**Leaderboard score** 是条件统计量，不是模型本体属性。它必须附带条件和不确定性；不同 benchmark 的分数不能做无量纲横向排名。
 
 ## 原理与理论基础
 
-### 系统不变量
-
-> **Invariant**：benchmark claims require a fixed task, environment snapshot, and independent verifier
-
-不变量与普通“最佳实践”不同：最佳实践可以因为场景变化而替换，不变量一旦被破坏，系统就失去本章希望保证的正确性。例如 `跑不通环境却比较分数` 并不是一个 UI 问题，而是说明某个状态已经无法从证据中唯一判断。
-
-
-### 故障模型
-
-本章优先把 “跑不通环境却比较分数”、“修改测试集污染结果”、“只报平均数不看失败类别” 作为可证伪故障，而不是泛化地枚举所有异常。对涉及外部 effect 的失败，判定顺序固定为“最后 durable state → effect 是否可能发生 → 现有 observation 是否足够决定下一步”；证据不足时停在 UNKNOWN/显式失败。
-
-### Why / What if / Trade-off
-
-本章真正的设计取舍不是“使用更强模型还是写更多规则”，而是确定 **Fixture** 与 **Environment** 分别应该由概率性决策还是确定性软件拥有。模型可以帮助识别候选路径，但它不会自动消除“跑不通环境却比较分数”这类系统失败；该失败必须由 runtime 的 schema、状态机、权限或 verifier 显式约束。
-
-如果把 Fixture 完全交给模型，系统会把不可验证的语言判断混入执行事实；如果把 Environment 全部硬编码为固定 workflow，又会失去开放任务所需的适应性。更稳健的边界是：让模型负责提出候选决策，让软件负责 `记录 commit/image/dataset 版本`、`失败按 taxonomy 归类` 以及对不变量 **benchmark claims require a fixed task, environment snapshot, and independent verifier** 的检查。
-
-**What if。** 一旦“修改测试集污染结果”发生，系统首先需要判断现有证据是否足够决定下一状态；证据不足时应停在显式失败或待协调状态，而不是让模型用自然语言补全事实。这个边界决定了本章方案是否具有可恢复性，而不只是演示效果。
-
-
-### 形式化模型与可证伪假设
+设 observation outcome $Y$ 由模型 $M$、scaffold $S$、task $T$、环境 $E$、verifier $V$、预算 $B$ 与随机性 $R$ 共同决定：
 
 $$
-ObservedScore=TrueCapability+TaskNoise+GraderNoise+EnvironmentDrift+Contamination
+Y=f(M,S,T,E,V,B,R)
 $$
 
-Benchmark 分数混合了真实能力、任务缺陷、grader 噪声、环境漂移与污染；benchmark 本身也需要审计。
+若比较两个系统时同时改变 $E$ 或 $B$，就不能把 $\Delta Y$ 归因于 $M/S$。本章 manifest gate 要求受控变量相等，再允许 aggregate。
 
-**可证伪假设。** 对 broken/ambiguous tasks 做清洗后，模型排序与绝对分数会发生可测变化。
+对二项任务成功率 $\hat p=k/n$，小样本要报告 Wilson interval。即使 5/5，95% 区间下界也只有约 0.5655；“100%”只是样本点估计。对同一 tasks 比较 A/B，优先用 paired outcome、bootstrap 或适当配对检验，而不是把两个独立均值直接相减。
 
-**建议测量。** broken-task rate、grader disagreement、environment failure、ranking stability。
+Benchmark validity 包含：construct validity（任务是否代表目标能力）、internal validity（差异是否来自被比较系统）、external validity（能否外推到生产分布）、reliability（重复 run 是否稳定）以及 contamination resistance（模型是否见过答案/测试）。一个可重复的错误 benchmark 仍然无效。
 
 ## 关键机制与执行流程
 
-![SWE-bench、OSWorld、PaperBench 与 MLE-bench：正常路径与故障恢复流程](../../assets/diagrams/30-benchmarks-flow.svg)
+![Benchmark 预检、执行、独立验证与拒绝不可比结果](../../assets/diagrams/30-benchmarks-flow.svg)
 
-**Step 1 — 记录 commit/image/dataset 版本。** `记录 commit/image/dataset 版本` 把短暂执行状态转换为后续能够读取的证据。写入内容至少要能关联本次 run、前一状态与下一状态；对 crash-sensitive 数据，应明确写入完成的判据。若进程在写入期间终止，恢复代码必须能够区分“没有记录”“完整记录”和“损坏/不确定记录”，而不能把半写状态视作成功。
+1. **固定问题陈述**：说明目标 population、能力、风险和不外推范围；
+2. **锁定实例**：保存 dataset revision、instance IDs、repo/site/artifact snapshot 与许可；
+3. **构建环境**：使用 image digest、依赖 lock、架构、资源配额和 reset verifier；
+4. **锁定 harness**：commit、action/observation schema、timeout、retry、tool 权限与 termination；
+5. **执行 Agent**：保存模型/provider、sampling、prompt/scaffold、完整 trajectory、成本与失败；
+6. **独立评分**：在受保护 grader 环境运行 tests/rubric/query，不让 Agent 修改；
+7. **可比性门禁**：manifest 任一受控字段不同就拒绝 aggregate；
+8. **统计与发布**：区间、失败 taxonomy、资源、未运行项和原始 evidence 同时发布。
 
-**Step 2 — 任务 reset 自动化。** `任务 reset 自动化` 是“SWE-bench、OSWorld、PaperBench 与 MLE-bench”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Environment` 是否仍满足 **benchmark claims require a fixed task, environment snapshot, and independent verifier**。
-
-**Step 3 — 输出 artifact 包。** `输出 artifact 包` 是“SWE-bench、OSWorld、PaperBench 与 MLE-bench”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Submission` 是否仍满足 **benchmark claims require a fixed task, environment snapshot, and independent verifier**。
-
-**Step 4 — 失败按 taxonomy 归类。** `失败按 taxonomy 归类` 是“SWE-bench、OSWorld、PaperBench 与 MLE-bench”的一次显式状态转移。输入和输出都必须可序列化并关联 `run_id/step_id`；一旦该步骤失败，后继步骤只能依据已记录状态继续。关键观察点是 `Scoring` 是否仍满足 **benchmark claims require a fixed task, environment snapshot, and independent verifier**。
-
-在本章的 `Fixture` 场景中，**最后一步 — 验证。** verifier 针对 `Scoring` 检查本章不变量 **benchmark claims require a fixed task, environment snapshot, and independent verifier**。如果“跑不通环境却比较分数”使现有 artifact/外部状态不足以证明成功，结果必须停在显式失败或 UNKNOWN；只有 observation 能闭合状态转移时，流程才允许进入 FINISHED。
-
-### 数据流与控制流
-
-本章的数据/控制链按 **记录 commit/image/dataset 版本 → 任务 reset 自动化 → 输出 artifact 包 → 失败按 taxonomy 归类** 推进。调试时不要只看最终 answer，应确认每一阶段的输入来源、状态版本和 observation；对“跑不通环境却比较分数”尤其要检查动作前后的证据是否足以闭合不变量 **benchmark claims require a fixed task, environment snapshot, and independent verifier**。
-
-
-### 持久化点与崩溃窗口
-
-本章需要持久化的内容取决于动作可逆性。与 `Fixture` 有关的纯计算状态通常可以重算；一旦 `任务 reset 自动化` 可能产生昂贵、外部或不可逆效果，就必须在动作前后建立可区分的证据边界。对于本章不变量 **benchmark claims require a fixed task, environment snapshot, and independent verifier**，恢复时最重要的问题是：最后一个已知状态是什么、动作是否可能已经发生、现有 observation 能否唯一决定 retry/continue/compensate。
-
+预检只回答“环境是否具备运行条件”。容器能启动、key 存在或网站可达都不等于 benchmark 已执行；official evaluator 未产生 artifact 时不能发布 score。
 
 ## 从原理到实现
 
-
-### 完整实验入口
-
-```python
-from __future__ import annotations
-import argparse
-from agentlab.course_scenarios import run_scenario
-
-def main() -> int:
- p=argparse.ArgumentParser(description='SWE-bench、OSWorld、PaperBench 与 MLE-bench')
- p.add_argument("--fault", action="store_true", help="inject the chapter-specific failure path")
- args=p.parse_args()
- result=run_scenario('benchmarks', fault=args.fault)
- print(result.as_json())
- return 0 if result.passed else 2
-
-if __name__ == "__main__":
- raise SystemExit(main())
-```
-
-### 核心机制实现
+本章离线实验用 5 个采购规则 task 隔离验证 harness control plane。Manifest 的每个字段都进入 canonical digest：
 
 ```python
-def benchmarks(fault=False):
- fixture={
-  'task_id':'procurement-policy-regression-017',
-  'input':{'amount_usd':7500,'risk_tier':'high','vendor_status':'approved'},
-  'policy':{'approval_threshold_usd':5000,'high_risk_requires_human':True},
-  'expected':{'decision':'WAITING_APPROVAL','external_effects':0},
- }
- canonical=lambda value: json.dumps(value,sort_keys=True,separators=(',',':')).encode()
- fixture_hash=hashlib.sha256(canonical(fixture)).hexdigest()
- replay=json.loads(json.dumps(fixture))
- if fault:
-  replay['policy']['approval_threshold_usd']=10000  # 模拟未声明的 fixture 漂移
- replay_hash=hashlib.sha256(canonical(replay)).hexdigest()
- manifest={
-  'task_id':fixture['task_id'],'seed':20260911,
-  'fixture_schema':'agentlab.procurement.v1','fixture_sha256':fixture_hash,
-  'verifier':'policy-decision-and-effect-count/v1',
- }
- run1={'fixture_sha256':fixture_hash,'passed_checks':2,'total_checks':2}
- run2={'fixture_sha256':replay_hash,'passed_checks':2,'total_checks':2}
- comparable=run1['fixture_sha256']==run2['fixture_sha256']
- return _ok('benchmarks',fault,{'manifest':manifest,'run1':run1,'run2':run2,
-  'comparable':comparable},'benchmark claims require a fixed task, environment snapshot, and independent verifier',comparable if not fault else not comparable)
+manifest = BenchmarkManifest(
+    benchmark="agentlab-procurement-5",
+    task_set_digest=content_digest(tasks),
+    environment_digest="sha256:publisher-image-locked",
+    verifier_digest=content_digest({"rule": rule, "effects": 0}),
+    harness_revision="agentlab-assurance-v1",
+    seed=20260911,
+)
 ```
 
+只有 comparability 通过才发布 aggregate；报告同时给 point estimate 与 Wilson interval：
 
-### 简化假设与不能省略的机制
+```python
+decision = compare_manifests(manifest, replay_manifest)
+report = benchmark_report(manifest, verified_outcomes)
+if not decision.aggregate_allowed:
+    raise IncomparableRun(decision.mismatches)
+```
 
-这个离线 fixture 故意不调用模型：它隔离并验证 benchmark 的一个底层不变量——**即使两次运行都显示 2/2 检查通过，只要输入策略的 canonical hash 不同，两次分数就不可比较**。这比 `demo-1/abc/score=1` 更接近真实评测失效方式：评估结果往往不是“明显报错”，而是在 dataset、test patch、browser snapshot 或 policy config 漂移后仍产出一个看似正常的数字。
+实验故意让两侧局部结果都为 5/5，但 fault run 修改 environment digest。系统返回 `mismatches=["environment_digest"]` 并阻断 aggregate，证明“高分”不能绕过 provenance。
 
-它仍不是 SWE-bench 或 WebArena 成绩。真实外部评测至少还要锁定：harness commit、dataset split/instance、容器或站点镜像、模型标识与采样参数、完整轨迹、原始 evaluator 输出、失败分类和全部 artifact hash。仓库用 [`experiments/benchmarks/catalog.json`](../../../experiments/benchmarks/catalog.json) 把这些要求变成机器可审计契约；`scripts/qa_external_benchmark_contracts.py` 只验证契约完整性，不伪装成任务执行。
+### 外部 coding/browser 合约
 
-### 真实 coding/browser benchmark 的证据闭环
+仓库的 `experiments/benchmarks/catalog.json` 固定 SWE-bench Lite 与 browser benchmark 的实例/harness/evidence 要求；`.github/workflows/external-agent-benchmarks.yml` 只允许隔离 runner 手工启动。当前发布状态明确为 `NOT_EXECUTED_IN_THIS_RELEASE`，契约 QA 只证明字段齐全，不产生模型成绩。
 
-本书为两条外部 smoke path 固定了官方 harness，但在原始证据齐全前不发布分数：
-
-| 路径 | 固定对象 | 真正执行时的 verifier | 当前状态 |
-|---|---|---|---|
-| SWE-bench Lite | 官方 harness commit `02e7a74…`、真实实例 `sympy__sympy-20590` | 先以 gold patch 验证 Docker evaluator，再运行官方 `swebench infer`，最后让官方 evaluator 在真实 repo test 上验证生成 patch | `NOT_EXECUTED_IN_THIS_RELEASE` |
-| WebArena | 官方 commit `dce0468…`、单个固定 task；另锁 BrowserGym runner commit | 自托管站点 reset + 登录态 + 完整 action/observation trajectory + 官方 evaluator | `NOT_EXECUTED_IN_THIS_RELEASE` |
-
-这里有两个容易混淆的边界。第一，SWE-bench 的 grader 执行补丁和 repository tests；“模型生成了一段 diff”不等于 resolved。第二，WebArena 的页面内容、登录态和后台数据库本身就是 fixture；对公开 demo 随手浏览不能产生有效 WebArena 分数。官方执行入口在 [external-agent-benchmarks workflow](../../../.github/workflows/external-agent-benchmarks.yml)，且只允许隔离的 self-hosted runner 手工触发。
-
-截至本书截止日，本机预检只证明 Docker daemon `27.4.0` 可达；可用磁盘 `87,892,013,056` bytes 小于本仓库为 SWE-bench full harness 设置的 `120 GiB` 安全门，当前进程没有 OpenAI key，WebArena 七个自托管 endpoint 也均未配置。固化记录见 [`preflight.json`](../../../evidence/benchmarks/2026-09-11-macos-arm64/preflight.json)，当前主机重跑结果仍写入 `validation_logs/external-benchmark-preflight.json`。**预检失败是诚实的环境结论，不是 0 分，更不是 benchmark 运行。**密钥只检查“变量是否存在”，从不读取或写入证据值。
-
+SWE-bench 真正运行需要 repo checkout、base commit、容器、模型 patch 与官方 evaluator tests；browser benchmark 需要自托管站点、reset、账户、trajectory 与官方 evaluator。任何缺项都只能报告 preflight/partial evidence。
 
 ## 主流系统实现对照与源码阅读入口
 
-| 项目 | 本书锁定版本/状态 | 应阅读的机制 | 已核验源码/文档入口 | 官方来源 |
+| Benchmark | 核心任务/环境 | 主要 verifier | 能说明什么 | 不能直接说明什么 |
 |---|---|---|---|---|
-| SWE-bench | `benchmark source observed 2026-09-09` | 真实 GitHub issue + repository snapshot + Docker/test verifier。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/swe-bench/SWE-bench) |
-| OSWorld | `benchmark source observed 2026-09-09` | 真实计算机环境的 observation/action/evaluator。 | 以官方 docs/release/source tree 为准 | [官方来源](https://github.com/xlang-ai/OSWorld) |
-| OpenAI PaperBench | `2025 benchmark` | 论文复现任务与细粒度 rubric/grader。 | 以官方 docs/release/source tree 为准 | [官方来源](https://openai.com/index/paperbench/) |
-| OpenAI MLE-bench | `2024 benchmark` | 75 个 Kaggle-style ML engineering competitions。 | 以官方 docs/release/source tree 为准 | [官方来源](https://openai.com/index/mle-bench/) |
+| [SWE-bench](https://github.com/swe-bench/SWE-bench) | 真实 GitHub issue + repo snapshot | patch 应用与 tests | 仓库级 coding issue 解决能力 | 通用软件工程、安全部署 |
+| [OSWorld](https://github.com/xlang-ai/OSWorld) | 真实桌面/应用状态 | 环境状态 evaluator | computer-use 长链交互 | 任意网站/企业流程可靠性 |
+| [PaperBench](https://openai.com/index/paperbench/) | 论文复现与 artifact | 分层 rubric/grader | 长时研究工程复现 | 科学发现真实性的全部维度 |
+| [MLE-bench](https://openai.com/index/mle-bench/) | Kaggle-style ML engineering | competition artifact/score | 数据/训练/实验执行能力 | 生产 ML 治理与泛化 |
+| WebArena 类环境 | 自托管网站和账户 | URL/DOM/backend state | 浏览器任务执行 | 公开互联网实时网站表现 |
 
-### 源码阅读方法
-
-源码阅读以 **SWE-bench** 为第一参照，并只追与“SWE-bench、OSWorld、PaperBench 与 MLE-bench”直接相关的公开执行链：入口 → durable/session state → 权限或协议边界 → verifier/trace。若上游没有公开某个服务端组件，本章不根据客户端现象反推其内部 scheduler、queue 或 policy engine。
-
-
-### 工业实现为什么更复杂
-
-
-对本章最值得关注的工程增量是：如何避免“跑不通环境却比较分数”、如何在“修改测试集污染结果”后恢复，以及如何让 `失败按 taxonomy 归类` 的结果能够进入 tracing/evaluation。只有这些机制都能落到公开类型、函数或协议消息上，才算真正完成源码对照。
+源码阅读不要从排行榜页面开始，而要从 instance schema、environment setup/reset、agent runner、evaluator、result aggregation 和 submission validation 顺序进入。尤其检查失败是否被排除、timeout 如何计分、环境错误如何分类。
 
 ## 设计方案与方法对比
 
-| 方案 | 核心优势 | 主要局限 | 更适合的约束 |
+| 设计 | 优势 | 风险 | 适用场景 |
 |---|---|---|---|
-| 最小自研 AgentLab | 机制透明、可断点、无网络即可故障注入 | 生态/模型能力有限 | 教学、研究原型、回归基线 |
-| SWE-bench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OSWorld | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
-| OpenAI PaperBench | 官方/主流实现提供成熟抽象与生态 | 抽象会隐藏部分底层机制，需要源码/trace 反推 | 生产集成与方案对照 |
+| Deterministic microbenchmark | 快、可定位机制、CI 稳定 | 外部有效性弱 | runtime/verifier 单元回归 |
+| Fixed real-world snapshot | 接近真实、可第三方复现 | 构建昂贵、会老化 | coding/browser 标准比较 |
+| Live web/business task | 分布新鲜 | 不可复现、隐私与状态漂移 | 线上 shadow/持续评测 |
+| Human expert challenge | 可覆盖开放高难质量 | 昂贵、主观、一致性问题 | research/高风险判断 |
+| Synthetic/generated tasks | 可控规模与难度 | 生成器偏差、捷径 | 覆盖组合和对抗注入 |
 
+一个成熟体系同时需要 microbenchmark 做机制定位、snapshot benchmark 做外部比较、生产 eval 做分布监控。三者证据不可互相冒充。
 
 ## 可复现实验
 
-本章两个 Core Lab 都直接执行仓库内的确定性代码；它们证明的是“SWE-bench、OSWorld、PaperBench 与 MLE-bench”对应的本地机制与 fault oracle，而不是外部 provider 或真实云环境。第三方实现只在 `labs/upstream/` 按独立 L5 互操作证据记录，未实际执行时必须保持 `EXTERNAL_NOT_RUN_IN_THIS_RELEASE`。
-
-### 实验环境
-
-统一 Python/OS/离线复现约束、安装步骤与工具链版本集中维护在[附录 A](../appendix-a-environment.md)。本章只增加与“SWE-bench、OSWorld、PaperBench 与 MLE-bench”直接相关的 normal/fault 双轨验证；若需要真实云、浏览器、GPU 或第三方 provider，则在对应 upstream lab 中单独标记 `NOT_RUN_EXTERNAL`，不把未运行结果计入核心实验。
-
-### Lab 30A — 正常路径
+### Lab 30A — 相同 manifest 的统计报告
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch30_benchmarks.py
+PYTHONPATH=src uv run python examples/chapters/ch30_benchmarks.py
 ```
 
-**关键断点：**
-- `src/agentlab/course_scenarios.py::benchmarks`
-- `examples/chapters/ch30_benchmarks.py::main`
-
-**本发布包实际输出：**
+实际输出核心字段：
 
 ```json
-{"contained": false, "evidence_level": "L1_MECHANISM", "evidence_meaning": "normal_path_assertion_satisfied", "fault": false, "fault_injected": false, "invariant": "benchmark claims require a fixed task, environment snapshot, and independent verifier", "invariant_holds": true, "observation": {"comparable": true, "manifest": {"fixture_schema": "agentlab.procurement.v1", "fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "seed": 20260911, "task_id": "procurement-policy-regression-017", "verifier": "policy-decision-and-effect-count/v1"}, "run1": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}, "run2": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}}, "oracle_detected": false, "passed": true, "recovered": false, "scenario": "benchmarks", "system_detected": false}
+{"comparability":{"aggregate_allowed":true,"comparable":true,"mismatches":[]},"aggregate_published":true,"report":{"accuracy":1.0,"successes":5,"tasks":5,"wilson_95":[0.5655,1.0]},"evidence_level":"L1_MECHANISM"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=false`、`invariant_holds=true`；这只证明确定性 fixture 的正常机制断言。完整手册：[Lab 30A](../../../labs/core/lab-30A-benchmarks.md)。
-
-### Lab 30B — 故障注入
+### Lab 30B — 环境漂移但局部分数不变
 
 ```bash
-PYTHONPATH=src python examples/chapters/ch30_benchmarks.py --fault
+PYTHONPATH=src uv run python examples/chapters/ch30_benchmarks.py --fault
 ```
 
-**本发布包实际输出：**
+实际输出核心字段：
 
 ```json
-{"contained": false, "evidence_level": "L2_ORACLE_ONLY", "evidence_meaning": "external_oracle_observed_bad_outcome_only", "fault": true, "fault_injected": true, "invariant": "benchmark claims require a fixed task, environment snapshot, and independent verifier", "invariant_holds": false, "observation": {"comparable": false, "manifest": {"fixture_schema": "agentlab.procurement.v1", "fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "seed": 20260911, "task_id": "procurement-policy-regression-017", "verifier": "policy-decision-and-effect-count/v1"}, "run1": {"fixture_sha256": "43378cebd6017db188c6019184c45e91e92208eae1a7df9318828d1f89716509", "passed_checks": 2, "total_checks": 2}, "run2": {"fixture_sha256": "cfbdc21ccd0eaf6d1231f51f0bddfc4888c3bc33a8caf1720de1d80460811446", "passed_checks": 2, "total_checks": 2}}, "oracle_detected": true, "passed": true, "recovered": false, "scenario": "benchmarks", "system_detected": false}
+{"comparability":{"aggregate_allowed":false,"comparable":false,"mismatches":["environment_digest"]},"aggregate_published":false,"report":{"accuracy":1.0,"successes":5,"tasks":5},"contained":true,"evidence_level":"L3_CONTAINED"}
 ```
 
-PASS：退出码 0，`passed=true`、`fault=true`、`oracle_detected=true`。本章故障实验为 **L2_ORACLE_ONLY**：独立 oracle 观察到故障，但被测系统没有证明检测/约束/恢复。 `passed=true` 本身只表示实验 oracle 得到预期观察。完整手册：[Lab 30B](../../../labs/core/lab-30B-benchmarks-fault.md)。
-
-### 观察与证据
-
+**关键断点与验收。** 在 manifest digest、`compare_manifests()` 和 aggregate/export 前停下。A 必须显示无 mismatch 且带区间；B 即使 5/5 也必须禁止聚合。完整步骤见 [Lab 30A](../../../labs/core/lab-30A-benchmarks.md) 与 [Lab 30B](../../../labs/core/lab-30B-benchmarks-fault.md)。
 
 ## 工程场景与系统设计
 
-本章沿用第 29 章 AgentOps 负载，重点说明 benchmark 结果如何进入发布 gate；“每天 5 万任务”仍是设计规模，不应与公开榜单成绩混合解释。
+一个 Coding Agent 发布 gate 可以分三层：每个 PR 跑 50 个确定性回归 task；每日在隔离 runner 跑固定 SWE-bench smoke instances；里程碑版本运行更大集合并人工审计失败。所有层共享 manifest/evidence schema，但资源预算和外推范围不同。
 
+Browser Agent 还需控制站点 reset、账户库存、邮件/订单后台状态与时间。公开网页 smoke test 可用于功能检查，不能称为 WebArena/OSWorld 分数。生产 shadow 任务必须禁止真实购买/删除等危险 effect，或使用专用测试 tenant。
 
-### 上线前必须补齐
-
-- 围绕 **Agent Benchmarks** 建立可审计状态字段与最小权限；
-- 为本章相关动作记录 run_id、step_id、输入摘要与 observation；
-- 对 `Benchmark 必须理解数据、环境、verifier 和基础设施噪声。` 这一边界建立自动化验收；
-- 为本章主要故障窗口配置 trace、日志和恢复 runbook；
-- 上线前把教学 fixture 替换为真实 provider/tool/workspace，并重新执行 normal/fault 两条路径。
+模型层可选择小型本地模型做便宜回归，强模型/OpenAI 做高难对照，但两者必须拥有相同 task/harness/verifier 和明确预算。若 context window、tool set 或重试次数不同，应报告为不同 system configuration，而不是“只比较模型”。
 
 ## 故障模型、失败模式与排错
 
-本章至少主动测试以下失败：
+- **Dataset drift**：实例或答案变化；核对 content digest 与 instance list；
+- **Environment drift**：image tag 相同但 digest/依赖不同；记录 OCI digest 与 lock；
+- **Broken task/test**：grader 错误或不可解；保存 raw tests 并独立复核，不随意剔除；
+- **Contamination**：模型见过 issue/patch；使用时间切分、私有 holdout 与泄漏分析；
+- **Infrastructure failure**：OOM、site unavailable、Docker failure；与 task failure 分开；
+- **Cherry-picking**：只报最好 seed/成功实例；预注册运行数并保留全部结果；
+- **Budget mismatch**：不同 token/tool/time/compute；比较前归一或明确分层；
+- **Verifier gaming**：修改 tests、读 hidden state；grader 隔离、只读 tests、最小权限。
 
-- **跑不通环境却比较分数**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **修改测试集污染结果**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-- **只报平均数不看失败类别**：先确认最后 durable state，再检查是否已经产生外部效果；不要先重试。
-
+排错先看 manifest mismatch 与 environment health，再看 trajectory、artifact 和 verifier raw output；不要从总分反推故障原因。
 
 ## 性能、可靠性与工程化
 
-### 应采集指标
+除 success/resolved rate 外，还应报告 setup success、environment failure、timeout、invalid action、tool error、unsafe effect、cost/token/tool calls、wall/CPU/GPU time、retries 和 verified success per cost。对长时任务报告 survival/partial progress，但不能把 partial 直接混成 resolved。
 
-- `eval pass rate + confidence interval`
-- `trace completeness`
-- `security escape rate`
-- `UNKNOWN rate`
-- `retry amplification`
-- `cost per successful task`
-
-
-### 优化顺序
-
-
-任何优化都必须重新运行 Lab A/B。尤其当优化改变 `Environment` 的生命周期时，要重新验证 **benchmark claims require a fixed task, environment snapshot, and independent verifier**；否则平均延迟下降可能以更大的 stale state、重复副作用或取消失效为代价。
-
-### 可靠性工程
-
-本章可靠性 gate 直接针对 “跑不通环境却比较分数”、“修改测试集污染结果”、“只报平均数不看失败类别”：只有正常路径与对应 fault path 都保持 **benchmark claims require a fixed task, environment snapshot, and independent verifier**，优化或功能扩展才可接受。是否达到 detection、containment 或 recovery 以实验的 `evidence_level` 字段为准。
-
+执行基础设施要限额和隔离：每 instance 独立 workspace/container/账户；并发不共享 mutable state；超时后真正终止子进程；artifact 以 hash 上传；失败 runner 不自动重试到“看起来成功”。昂贵 benchmark 可分层抽样，但核心 sentinel tasks 每次发布必跑。
 
 ## 技术边界与设计取舍
-本章方案有明确边界：
 
-- LLM-as-judge 不是绝对真值，需要标定与人类/程序 verifier 交叉验证
-- trace 只能观察已埋点路径，不能证明未记录副作用不存在
-- prompt injection 无单一提示词能彻底解决，必须做权限/隔离防御
-- 性能数字高度依赖模型/provider/工具与数据，不能跨环境直接比较
+Core Lab 的五个规则任务只证明 comparability gate 和统计格式，不测 reasoning/coding/browser。Wilson interval 处理二项抽样误差，不处理 task selection bias、run correlation、grader bias 或 distribution shift。SHA-256 identity 证明内容相同，不证明内容正确。
 
-选择方案时要回到本章边界：如果业务不能接受“跑不通环境却比较分数”，就必须为 `Fixture` 增加更强的确定性约束；如果主要任务是开放式探索，则可以把更多 `Environment` 决策交给模型，但要用 `失败按 taxonomy 归类` 保持结果可验证。**SWE-bench** 与 **OSWorld** 的差异也应放在这些约束下理解，而不是抽象成通用框架排名。
-
-Benchmark 是受控比较工具，不是生产可靠性的代理变量。SWE-bench、OSWorld 等各自测量不同能力，版本、grader、环境与污染风险必须锁定；跨榜单直接比较需要谨慎。
+外部 benchmark 的官方 harness 也不是绝对真值；应保留 task audit、broken-instance policy 与版本。排行榜提高不等于生产更安全，生产 incident 降低也不必然提高公共 benchmark。两类指标服务不同决策。
 
 ## 前沿研究与演进方向
 
-当前研究和工业演进已经从“模型能否调用工具”推进到“怎样让长期、状态化、具有副作用的 Agent 可评估、可恢复、可治理”。与本章直接相关的资料：
+前沿正从静态短任务转向长时、隐藏状态、多应用、动态环境与可验证 artifact；同时更关注 benchmark contamination、基础设施噪声、scaffold attribution 和“benchmark 是否仍测到目标能力”。随着 Agent 变强，任务饱和会导致区分度下降，需要动态但可审计的新任务。
 
-- **[AgentBench: Evaluating LLMs as Agents](https://arxiv.org/abs/2308.03688)**：多环境 Agent benchmark，推动从答案评估转向交互任务评估。
-- **[SWE-bench](https://github.com/swe-bench/SWE-bench)**（benchmark source observed 2026-09-09）：真实 GitHub issue + repository snapshot + Docker/test verifier。
-- **[OSWorld](https://github.com/xlang-ai/OSWorld)**（benchmark source observed 2026-09-09）：真实计算机环境的 observation/action/evaluator。
+重要研究问题包括：如何创建不泄漏又可第三方复核的 holdout；如何用因果设计拆分模型与 scaffold 贡献；如何评估长任务的恢复性和安全成本；如何建立跨 coding/browser/research 的共同 evidence schema；如何识别 benchmark shortcut 而不暴露 hidden tests。
 
+截至 2026-09-11，本书外部 benchmark 只报告已保存的预检与契约状态。无官方 evaluator artifact 就无分数，这是比“填满排行榜”更重要的开源可信度约束。
 
-### 截至 2026-09-11 的研究更新
+### 深度审计与研究证据链
 
-本节只记录会改变本章系统结论的研究或官方规范更新；实验仍使用仓库锁定版本，避免把“最新观察版本”与“可复现实验版本”混为一谈。
-- OpenAI: Separating signal from noise in coding evaluations （2026‑07‑08）：benchmark validity, broken tasks and coding‑agent evaluation design。
-- OSWorld2.0: Benchmarking Computer Use Agents on Long‑Horizon Real‑World Tasks（arXiv 2606.29537; 2026‑06‑28）：long‑horizon computer use, hidden state, cross‑source reasoning, safety。
-- OpenAI PaperBench（2025 benchmark）：把论文复现拆成长时研究/工程任务，强调 artifact 与 grader，而不只评最终文本。
-- OpenAI MLE‑bench（2024 benchmark）：以真实机器学习工程任务考察代码、实验和结果提交，适合作为环境型 Agent 评测参照。
-
-**本章吸收的变化。** Benchmark 分数混合模型能力与任务/评分器/环境质量。2026 对 coding eval 的审计提醒：benchmark 本身也必须被验证。这些研究/规范的价值不在于替换本章原理，而在于把上述假设放进更真实、更长时或更高风险的环境中检验。
-
-### Research Gap
-
-围绕 `Fixture`，当前缺口不是“再增加一个 Agent API”，而是怎样把 **benchmark claims require a fixed task, environment snapshot, and independent verifier** 从局部实现经验升级为跨模型、跨 runtime 可验证的系统属性。现有工业实现已经能够提供 tool loop、session、graph、plugin 或 workspace 等抽象，但在“跑不通环境却比较分数”和“修改测试集污染结果”同时出现时，证据格式、恢复语义和评测方法仍缺少统一答案。
-
-本章的研究更新不追求论文数量，而关注一个问题：现有工作是否真正推进了 **Agent Benchmarks** 的可验证性。Anthropic infrastructure noise 研究显示资源配置可显著影响 Terminal-Bench 分数；PaperBench/MLE-bench/SWE-bench 各自测量不同能力。 因此，本章会把论文结论放回不变量、失败窗口和实验断言中，而不是把研究当作参考文献列表。
-
-### Open Problems
-
-1. 如何把 `Fixture` 的正确性拆成可组合的局部不变量，并在不同 Agent runtime 中复用 verifier？
-2. 当“跑不通环境却比较分数”与“修改测试集污染结果”同时发生时，**SWE-bench** 与 **OSWorld** 的公开抽象分别能保存哪些证据，哪些状态仍需要外部 reconciliation？
-3. 如果模型能力显著提高，围绕 `Environment` 的哪些 harness 机制仍属于系统必要条件，哪些只是当前模型能力下的临时补丁？
-4. 如何构造一个既保护真实业务数据、又能复现“只报平均数不看失败类别”的公开 benchmark，使研究结果可以被第三方验证？
-
-
-### 深度审计与研究证据链：Agent Benchmarks
-
-本章重新审计后的核心结论是：**Benchmark 必须理解数据、环境、verifier 和基础设施噪声。** 这句话只有在代码、实验、开源源码和研究证据四个层面同时成立时才有教学价值。仅靠定义或 API 示例无法证明它，因为 Agent Systems 的风险通常发生在模型决策与外部环境之间的缝隙里。
-
-**与本章最相关的近期/基础研究与官方资料：**
-
-- **[PaperBench](https://openai.com/index/paperbench/)**：把论文复现拆成细粒度可评分任务，强调 rubric/grader。
-- **[AgentDojo](https://arxiv.org/abs/2406.13352)**：用不可信工具返回内容测试 prompt injection 攻防。
-- **[Agent Security Bench](https://arxiv.org/abs/2410.02644)**：覆盖多工具、多场景、多攻击/防御的 Agent 安全评测。
-
-这些资料与本章的关系不是“引用背书”，而是帮助读者识别设计边界。SWE-bench、OSWorld、PaperBench、MLE-bench、BrowseComp 是本章核心谱系。 读者阅读源码时应主动寻找四个对象：输入如何进入系统、状态在哪里持久化、动作由谁执行、失败后谁负责恢复。
-
-**实验语义边界。** 本章实验验证 Agent Benchmarks 的观测、评测、安全或生产控制面不变量；证据等级定义与解释规则统一见附录 A，且 `passed=true` 不得跨级推导 containment/recovery。
-
+本章将本地 comparability gate、外部执行合同和公开 benchmark 成绩严格分开。源码中的 5-task report 是 harness 机制证据；catalog/preflight 只是可执行性准备；只有 pinned harness 的官方 evaluator artifact 才能产生 SWE-bench 或 browser score。`NOT_EXECUTED` 永远不能由文案升级为 PASS。
 
 ## 本章总结与进阶实践
 
-### 核心结论
+Benchmark 的本质是受控实验系统。分数必须带 manifest、环境、verifier、预算、区间和失败类型；不可比结果应在聚合前被拒绝；未运行状态必须诚实保留。
 
-1. 本章不变量是：**benchmark claims require a fixed task, environment snapshot, and independent verifier**；
-2. `Fixture` 必须是可观察软件边界，而不是 prompt 约定；
-3. `记录 commit/image/dataset 版本` 与 `失败按 taxonomy 归类` 之间必须有状态和证据连接；
-4. 模型提出动作不等于系统已经执行，更不等于任务成功；
-5. 正常路径只能证明功能，故障路径才能暴露恢复语义；
-6. 开源实现的核心价值在于理解真实约束，不是复制 API；
-7. 性能优化必须与可靠性/安全不变量一起重新验证；
-8. 技术边界和未解决问题是高级系统设计的一部分。
+进阶问题（答案见[附录 L](../appendix-l-part6-solutions.html#ch30)）：
 
-### 常见误区
-
-- 跑不通环境却比较分数
-- 修改测试集污染结果
-- 只报平均数不看失败类别
-
-### 思考题与实践
-
-- **Why：** 为什么 `Fixture` 不能只靠模型“记住”？
-- **What if：** 如果在 `记录 commit/image/dataset 版本` 与 `失败按 taxonomy 归类` 之间 crash，当前证据足够恢复吗？
-- **Programming：** 修改 `examples/chapters/ch30_benchmarks.py` 或对应 scenario，让系统新增一种错误类型，但仍保持 invariant。
-- **Engineering：** 把 Lab B 的故障改成 timeout/duplicate/crash 中另一种，写出状态机和恢复步骤。
-- **Research：** 选择本章一个 Open Problem，阅读两篇相互不同的方法，给出你自己的实验设计和 falsifiable hypothesis。
-
-下一章进入 **Tracing、Metrics 与 AgentOps**，它将复用本章已经建立的状态/证据边界，而不是重新从 API 使用开始。
+1. 为什么两个系统都在同名 Docker tag 下运行仍可能不可比？
+2. `5/5` 为什么不能表述为真实成功率已知为 100%？
+3. 如何区分模型失败、harness 失败和 broken task？
+4. 为什么公开网页自动化不能直接称为 WebArena 成绩？
+5. 怎样设计一次可审计的真实 SWE-bench smoke run？

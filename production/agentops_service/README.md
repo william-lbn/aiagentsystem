@@ -80,3 +80,18 @@ docker compose up --build
 ```
 
 服务监听 `http://127.0.0.1:8010`。
+
+容器契约刻意包含：digest-pinned base image、非 root UID `65532`、`/healthz`、只读 root filesystem、`cap_drop: ALL`、`no-new-privileges` 与独立 named volume。`docker compose config` 只能证明配置可解析；上线前还应从宿主外执行 health/API/restart smoke，并验证数据库卷权限。
+
+本项目源码支持 x86_64/amd64 与 arm64。若发布多架构镜像，必须真正构建并检查 OCI image index，而不是仅在 README 声明：
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --file production/agentops_service/Dockerfile \
+  --tag REGISTRY/agentops:v1.0.0 \
+  --push .
+docker buildx imagetools inspect REGISTRY/agentops:v1.0.0
+```
+
+将 `REGISTRY/agentops:v1.0.0` 替换为你有权限的 registry；不要直接复制示例 tag。发布证据应保存 image-index digest、两个 platform manifest digests、SBOM、provenance 和各平台 smoke 输出。仓库不会把未实际执行的 build/push 写成已验证事实。

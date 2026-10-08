@@ -12,6 +12,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml.xmlchemy import OxmlElement
+from pptx.oxml.ns import qn
 from PIL import Image
 from common import ROOT, course, summary_parts, section_text
 
@@ -70,6 +72,18 @@ prs.slide_width = Inches(13.333)
 prs.slide_height = Inches(7.5)
 
 
+def set_cjk_font(paragraph):
+    """Set both Latin and East Asian OOXML typefaces for cross-app rendering."""
+    paragraph.font.name = FONT
+    properties = paragraph.font._element
+    properties.set("lang", "zh-CN")
+    east_asian = properties.find(qn("a:ea"))
+    if east_asian is None:
+        east_asian = OxmlElement("a:ea")
+        properties.append(east_asian)
+    east_asian.set("typeface", FONT)
+
+
 def bg(slide, c=WHITE):
     f = slide.background.fill
     f.solid()
@@ -83,7 +97,7 @@ def tx(slide, text, x, y, w, h, size=20, bold=False, color=INK, align=None):
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = text
-    p.font.name = FONT
+    set_cjk_font(p)
     p.font.size = Pt(size)
     p.font.bold = bold
     p.font.color.rgb = color
@@ -113,7 +127,7 @@ def bullets(slide, items, x, y, w, h, size=15, color=INK, max_items=6):
     for i, it in enumerate(items[:max_items]):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.text = "• " + it
-        p.font.name = FONT
+        set_cjk_font(p)
         p.font.size = Pt(size)
         p.font.color.rgb = color
         p.space_after = Pt(7)
