@@ -101,7 +101,7 @@ MAF 官方把内置 checkpoint store 区分为：in-memory 仅进程内、file �
 
 仓库固定一个真实实例 `sympy__sympy-20590` 和官方 harness commit。计划先运行 gold patch，证明 Docker evaluator 本身健康；再由官方 `swebench infer`/mini-SWE-agent 生成 patch；最后由官方 evaluator 执行 repository tests。官方文档把 `resolved` 定义为 patch 使目标测试通过，并输出 `report.json`、`test_output.txt`、`run_instance.log`、`eval.sh` 和 `patch.diff`；运行进程“没有 crash”并不等于实例 resolved。[SWE-bench 官方 evaluation guide](https://github.com/SWE-bench/SWE-bench/blob/main/docs/guides/evaluation.md)
 
-本次没有执行该任务。实际预检显示 Docker daemon `27.4.0` 可达，但可用空间 `87,892,013,056` bytes 低于本仓库 full-harness 安全门 `120 GiB`，且当前进程没有 `OPENAI_API_KEY`。因此正确状态是 `NOT_EXECUTED_IN_THIS_RELEASE`，不是 0 分。0 分只有在 agent 轨迹与官方 grader 原始输出实际生成后才是有效结果。
+该任务至今没有执行。2026-09-12 的历史预检曾观察到 Docker daemon `27.4.0` 可达、可用空间 `87,892,013,056` bytes，低于 full-harness 安全门 `120 GiB`，且当次进程没有 `OPENAI_API_KEY`；这些环境事实不能外推到今天。2026-10-08 本地 Docker CLI 可用但 daemon 未运行。本项目状态仍是 `NOT_EXECUTED_IN_THIS_RELEASE`，不是 0 分。0 分只有在 agent 轨迹与官方 grader 原始输出实际生成后才是有效结果。
 
 ### 6.2 WebArena browser agent contract
 
@@ -117,11 +117,11 @@ $$
 TaskSnapshot + EnvironmentIdentity + AgentTrajectory + ExternalEffects + IndependentVerifier
 $$
 
-缺任何一项都可能把 harness error、数据漂移、缓存复用、登录失效或人工介入误写成模型能力。仓库 Core Lab 30 现在用采购策略 drift 演示这一点：两次局部 verifier 都为 2/2，但 fixture SHA-256 不同，所以比较必须失败。
+缺任何一项都可能把 harness error、数据漂移、缓存复用、登录失效或人工介入误写成模型能力。仓库 Core Lab 30 用五条采购策略 fixture 演示这一点：局部报告可达 5/5，但环境 manifest digest 不同，跨运行比较仍必须失败。
 
 ## 7. Canonical reproducibility：发布保证与边界
 
-v1.0.0 的 canonical 出版路径使用 digest-pinned builder、锁定的 Quarto/Python 依赖、`SOURCE_DATE_EPOCH`、稳定 EPUB identifier、内容派生 PDF trailer ID，以及规范化的 PPTX/ZIP metadata。GitHub hosted CI 已实际构建并验证全部出版表面；compatibility release 另以两次隔离的 SOURCE-CLEAN 冷重建比较 134 个产物：130 个稳定文件做原始 SHA-256，PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹，EPUB 比较排序后的成员名与 payload，并只规范 `dcterms:modified`。
+v1.0.0 的 canonical 出版路径使用 digest-pinned builder、锁定的 Quarto/Python 依赖、`SOURCE_DATE_EPOCH`、稳定 EPUB identifier、内容派生 PDF trailer ID，以及规范化的 PPTX/ZIP metadata。历史 GitHub hosted CI 已在旧提交上构建并验证全部出版表面；2026-10-08 的新提交须以其对应 CI run 单独判定，不能继承旧结果。历史 compatibility release 以两次隔离的 SOURCE-CLEAN 冷重建比较 134 个产物：130 个稳定文件做原始 SHA-256，PDF 比较公开元数据、layout text 与全部页面的 24-DPI 灰度渲染指纹，EPUB 比较排序后的成员名与 payload，并只规范 `dcterms:modified`。这些历史数值不构成新提交的重建证据。
 
 本项目不把 PDF/EPUB 私有封装字节或不同宿主系统上第三方出版器生成文件的原始字节完全一致作为 v1.0.0 发布保证。预发布诊断中，两端内容与结构 QA 均通过，但 Quarto 1.11.1 生成的 Bootstrap CSS 存在规则排列及内容哈希文件名差异，继而改变引用该文件的 HTML 字节；同一 Linux host 的 Pandoc/XeLaTeX 也可能改变 PDF/EPUB 的非语义封装字节。这些差异不应被包装成“bit-for-bit 已通过”，也不应让非语义差异长期阻断开源发布。因此发布门保留锁定 container 的 canonical build、同 host format-aware clean rebuild、语义/结构 QA、校验和、SBOM 与 provenance，并明确不宣称跨 host 或所有容器格式的原始字节复现。
 

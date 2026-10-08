@@ -57,11 +57,11 @@ GitHub Release 当前采用**可审计压缩包**分发 PDF，而不是把生成
 | 中文正文 | 40 章 + 13 附录，分为 7 篇 |
 | Core Labs | 80 个：40 条正常路径 + 40 条故障注入路径 |
 | Python 示例 | 69 个：40 个章节入口 + 29 个支撑示例 |
-| 自动化测试 | 233 项；覆盖率由 `make coverage` 的质量门实时验证 |
+| 自动化测试 | 237 项；覆盖率由 `make coverage` 的质量门实时验证 |
 | 主书 | PDF 以当前源码构建结果为准 + EPUB + HTML |
 | 实验手册 | PDF 以当前源码构建结果为准 + EPUB + HTML |
 | 网站构建物 | 134 个 HTML 页面（当前源码构建合同） |
-| 教学幻灯片 | 90 页 PPTX |
+| 教学幻灯片 | 90 页 PPTX；本轮仅完成结构核验，本机 LibreOffice 的中文字形渲染尚未通过视觉验收，使用前请在目标软件中抽检 |
 | 外部来源锁 | 114 项；唯一 URL 数由 source-lock QA 实时核验 |
 | Scoped L5 外部证据 | 6 项：MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF |
 
