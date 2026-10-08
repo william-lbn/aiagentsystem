@@ -8,7 +8,7 @@
 - Dependency security refresh: **2026-10-08**; this operational patch does not change the book's protocol/research cutoff.
 - This-worktree local verification date: **2026-10-08**
 - Local publisher actually executed: **Pandoc compatibility path**
-- Hosted canonical status: **PENDING FOR THIS COMMIT**. Historical Quarto runs in the digest-pinned OCI builder do not verify this source revision; see the [CI workflow history](https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml)
+- Hosted canonical status is **commit-specific and mutable**: use the exact SHA's [CI workflow run](https://github.com/william-lbn/aiagentsystem/actions/workflows/ci.yml) and its `canonical-publication` job as the authority. A historical Quarto run in the digest-pinned OCI builder does not verify a later source revision.
 - External upstream/provider/browser/GPU/cloud experiments: **not promoted without execution evidence**
 
 ## Validation results
@@ -25,7 +25,7 @@
 | Local compatibility Workbook structure QA | PASS | **135 pages / 80 labs** |
 | Slides structure QA | PASS WITH LIMIT | **90 slides**; OOXML contains Chinese text and East Asian font metadata. Headless LibreOffice on this macOS host substituted a font without CJK glyphs, so visual rendering is **not certified**; validate in target PowerPoint/LibreOffice environment before distribution. |
 | Local compatibility Output QA | PASS | Site **134 pages**; main book 328; workbook 135 |
-| Hosted canonical publication | PENDING | Must run on the next commit; historical hosted results are not promoted to this worktree |
+| Hosted canonical publication | VERIFY PER COMMIT | Check the exact SHA's `canonical-publication` job; this local report does not freeze an asynchronous GitHub Actions result |
 | Source QA | PASS | 40 chapters / 13 appendices / 80 labs / 80 diagrams / 114 source locks |
 | SOURCE_LOCK coverage | PASS | 106 references / 44 unique external URLs covered; 1 `.invalid` fixture allowlist |
 | Upstream contract QA | PASS | 10 contracts; status=`EXTERNAL_NOT_RUN_IN_THIS_RELEASE` |
@@ -53,4 +53,4 @@
 
 ## Evidence limits
 
-This report does **not** claim current hosted-canonical completion, current clean-rebuild equivalence, cross-host bit-for-bit reproducibility, APT snapshot hermeticity, exactly-once external side effects, real SWE-bench/WebArena scores, real post-training quality gains, realtime-provider latency, multi-architecture image execution, or complete execution of the ten third-party upstream contracts. The six scoped external implementation runs prove only the dimensions recorded in their evidence vectors. Detailed audit: [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md).
+This local report does **not** independently attest hosted-canonical completion (consult the exact commit's CI run), current clean-rebuild equivalence, cross-host bit-for-bit reproducibility, APT snapshot hermeticity, exactly-once external side effects, real SWE-bench/WebArena scores, real post-training quality gains, realtime-provider latency, multi-architecture image execution, or complete execution of the ten third-party upstream contracts. The six scoped external implementation runs prove only the dimensions recorded in their evidence vectors. Detailed audit: [`docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md`](docs/L5_EXTERNAL_EVIDENCE_AUDIT_2026-09-11.md).

@@ -17,7 +17,7 @@
 | Scoped official implementation evidence | 6 | **VERIFIED** — MCP、A2A、OpenAI Agents、LangGraph、Google ADK、MAF；每项均保留独立 claim ceiling |
 | External coding/browser benchmarks | 2 | **PINNED CONTRACTS; NOT EXECUTED** — SWE-bench Lite / WebArena；没有发布分数 |
 | Cross-host canonical comparison | 2-host diagnostic | **OUTSIDE RELEASE CLAIM / WORKFLOW REMOVED** — 两端结构与内容 QA 通过，但 Quarto Bootstrap CSS 字节排序不同；v1.0.0 不发布 bit-for-bit 声明 |
-| Canonical Quarto container | 1 digest-pinned path | **PENDING FOR THIS WORKTREE** — 历史 CI 结果不冒充当前 Part VI–VII 重写后的结果 |
+| Canonical Quarto container | 1 digest-pinned path | **VERIFY PER COMMIT** — 以对应 SHA 的 GitHub `canonical-publication` job 为准；旧提交结果不得冒充当前源码结果 |
 | Same-host SOURCE-CLEAN rebuild | 2 cold caches | **PENDING FOR THIS WORKTREE** — 旧证据保留但不作为当前源码声明 |
 | Production Docker/Compose path | 1 | **STATIC CONTRACT + CODE/TEST COVERED**；校验实际 `IMAGE_LOCK.json` 声明与 Dockerfile base 一致；本机 Docker daemon 未运行，未宣称真实 registry push、签名、SBOM、amd64/arm64 双平台运行或云端 E2E |
 
