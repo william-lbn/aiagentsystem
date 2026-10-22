@@ -38,7 +38,7 @@ test = [
   # Retained for the pinned A2A SDK 1.1.2 evidence environment. Starlette's
   # TestClient selects the separately pinned httpx2 backend below.
   "httpx==0.28.1",
-  "httpx2==2.12.0",
+  "httpx2==2.13.1",
   "pytest==9.1.1",
 ]
 publish = [
