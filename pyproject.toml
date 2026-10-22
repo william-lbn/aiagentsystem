@@ -48,7 +48,7 @@ publish = [
 quality = [
   "pip-audit==2.10.1",
   "pytest-cov==7.1.0",
-  "ruff==0.16.7",
+  "ruff==0.16.10",
   # pip-audit's requests chain needs the 2026 security fixes; avoid silently
   # reintroducing PYSEC-2026-4175/4176/4177 on lock refresh.
   "urllib3==2.8.0",
