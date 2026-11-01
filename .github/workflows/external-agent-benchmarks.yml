@@ -46,7 +46,7 @@ jobs:
       - name: Evaluate the generated patch with repository tests
         working-directory: .external/SWE-bench
         run: uv run swebench eval lite -p "logs/inference/agent-${RUN_ID}/preds.json" -i sympy__sympy-20590 --run-id "eval-${RUN_ID}" -j 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: swebench-raw-${{ env.RUN_ID }}
@@ -95,7 +95,7 @@ jobs:
       - name: Run one real self-hosted browser task
         working-directory: .external/webarena
         run: .venv/bin/python run.py --instruction_path agent/prompts/jsons/p_cot_id_actree_2s.json --test_start_idx 0 --test_end_idx 1 --model "${MODEL_NAME}" --result_dir "evidence-output-${RUN_ID}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: webarena-raw-${{ env.RUN_ID }}
